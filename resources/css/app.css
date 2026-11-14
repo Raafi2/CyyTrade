@@ -109,3 +109,22 @@ td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowra
   .grid { display: flex; flex-direction: column; }
   .watch .rows { max-height: 360px; } .chart { height: 420px; } .detail { overflow: visible; }
 }
+
+/* ---- Scalping ---- */
+.grid.scalp { grid-template-columns: 380px minmax(0, 1fr) 360px; }
+.scroll { overflow-y: auto; min-height: 0; flex: 1; }
+.inputs.two { grid-template-columns: repeat(2, 1fr); }
+.inputs select { background: var(--bg); border: 1px solid var(--line2); color: var(--text); padding: 5px 6px; font: 12px var(--mono); border-radius: 2px; width: 100%; }
+.inputs .seg { height: 27px; } .inputs .seg button { flex: 1; }
+.inputs .btn { height: 27px; padding: 0 6px; }
+.btn.primary { margin-top: 10px; width: 100%; border-color: var(--amber); color: var(--amber); }
+.preview { margin-top: 10px; }
+.fine { color: var(--muted); font-size: 11px; margin: 6px 0 0; }
+.note-bad { color: var(--amber); font-size: 12px; margin: 6px 0 0; }
+.prow { display: grid; grid-template-columns: 52px 1fr auto 80px; gap: 8px; align-items: center; width: 100%; padding: 6px 4px; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; }
+.prow.on { background: #131920; }
+.big { font-size: 26px; line-height: 1.2; }
+.log { font-size: 11px; max-height: 220px; overflow-y: auto; }
+.log > div { padding: 2px 0; } .log .good { color: var(--long); } .log .bad { color: var(--short); } .log .warn { color: var(--amber); }
+.row { display: flex; gap: 8px; margin-top: 8px; }
+@media (max-width: 1000px) { .grid.scalp { grid-template-columns: 1fr; height: auto; } .grid.scalp .chart { min-height: 360px; } }

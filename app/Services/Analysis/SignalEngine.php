@@ -13,7 +13,13 @@ use App\Services\Analysis\Indicators as I;
  */
 final class SignalEngine
 {
-    public function __construct(private array $cfg) {}
+    /** Label timeframe untuk teks penjelasan. Mode scalping memakai 1m / 5m / 15m, bukan 15m / 1h / 4h. */
+    private array $tf;
+
+    public function __construct(private array $cfg)
+    {
+        $this->tf = ($cfg['tf'] ?? []) + ['trigger' => '15m', 'main' => '1h', 'htf' => '4h', 'oi' => '12j'];
+    }
 
     public function analyze(
         string $symbol,
@@ -116,6 +122,11 @@ final class SignalEngine
 
         // ---------- Level (entry / SL / TP) ----------
         $levels = $this->levels($lean, $price, $atr, $swH, $swL);
+        // Biaya round-trip (fee + slippage) dalam satuan R: makin rapat SL, makin besar bagian yang termakan biaya.
+        $costPct = (float) ($this->cfg['cost_pct'] ?? 0);
+        if ($costPct > 0 && $levels['risk_pct'] > 0) {
+            $levels['cost_r'] = round($costPct / $levels['risk_pct'], 2);
+        }
         $out['levels'] = $levels;
 
         // ---------- Veto keras ----------
@@ -123,11 +134,11 @@ final class SignalEngine
         $htfS = $f['htf']['s'] ?? 0;
         $adx4 = $this->adx4h($c4h);
         if ($adx4 >= 25 && $htfS * $dir < 0 && abs($htfS) >= 0.55) {
-            $v[] = 'Melawan tren 4h yang kuat (ADX 4h ' . round($adx4) . ').';
+            $v[] = 'Melawan tren ' . $this->tf['htf'] . ' yang kuat (ADX ' . $this->tf['htf'] . ' ' . round($adx4) . ').';
         }
         $ext = ($price - I::last($e20)) / $atr;
         if ($ext * $dir > $this->cfg['veto']['max_extension_atr']) {
-            $v[] = 'Harga sudah terlalu jauh dari EMA20 1h (' . round(abs($ext), 1) . ' ATR). Mengejar harga.';
+            $v[] = 'Harga sudah terlalu jauh dari EMA20 ' . $this->tf['main'] . ' (' . round(abs($ext), 1) . ' ATR). Mengejar harga.';
         }
         if ($volState === 'EKSTREM' || ($hi[count($hi) - 1] - $lo[count($lo) - 1]) > 4 * $atr) {
             $v[] = 'Volatilitas ekstrem. Stop loss mudah tersapu.';
@@ -140,6 +151,10 @@ final class SignalEngine
         }
         if ($levels['rr1'] < $this->cfg['veto']['min_rr1']) {
             $v[] = 'R:R ke TP1 hanya 1:' . $levels['rr1'] . ' (ada level penghalang dekat).';
+        }
+        $maxCost = $this->cfg['veto']['max_cost_r'] ?? null;
+        if ($maxCost !== null && isset($levels['cost_r']) && $levels['cost_r'] > $maxCost) {
+            $v[] = 'SL terlalu rapat: fee + slippage memakan ' . $levels['cost_r'] . 'R per trade (batas ' . $maxCost . 'R).';
         }
 
         // ---------- Confidence ----------
@@ -234,7 +249,7 @@ final class SignalEngine
             $s *= 1.15;
         }
         $s = $this->clamp($s);
-        return ['s' => $s, 'note' => '4h: ' . implode(', ', $txt) . ', ADX ' . round($adx4)];
+        return ['s' => $s, 'note' => $this->tf['htf'] . ': ' . implode(', ', $txt) . ', ADX ' . round($adx4)];
     }
 
     private function adx4h(array $c4h): float
@@ -254,7 +269,7 @@ final class SignalEngine
         $s = 0.30 * $this->sgn($a - $b) + 0.20 * $this->sgn($p - $b) + 0.30 * tanh($slope / 0.8) + 0.20 * $this->sgn($hist);
         return [
             's' => $this->clamp($s),
-            'note' => '1h: EMA20 ' . ($a > $b ? 'di atas' : 'di bawah') . ' EMA50, MACD histogram ' . ($hist >= 0 ? 'positif' : 'negatif'),
+            'note' => $this->tf['main'] . ': EMA20 ' . ($a > $b ? 'di atas' : 'di bawah') . ' EMA50, MACD histogram ' . ($hist >= 0 ? 'positif' : 'negatif'),
         ];
     }
 
@@ -299,7 +314,7 @@ final class SignalEngine
             }
         }
         $s = $this->clamp(0.45 * $rsiS + 0.35 * $macdS + 0.20 * $div);
-        return ['s' => $s, 'note' => 'Momentum 1h: RSI ' . round($r) . ($trend === 'RANGE' ? ' (mode sideways)' : '') . $divTxt];
+        return ['s' => $s, 'note' => 'Momentum ' . $this->tf['main'] . ': RSI ' . round($r) . ($trend === 'RANGE' ? ' (mode sideways)' : '') . $divTxt];
     }
 
     private function fTrigger(array $c15): array
@@ -312,7 +327,7 @@ final class SignalEngine
         $s = 0.40 * $this->sgn(I::last($e9) - I::last($e21)) + 0.30 * $this->sgn($p - I::last($e21)) + 0.30 * tanh(($r - 50) / 15);
         if ($r > 82) $s -= 0.4;
         if ($r < 18) $s += 0.4;
-        return ['s' => $this->clamp($s), 'note' => '15m: EMA9 ' . (I::last($e9) > I::last($e21) ? 'di atas' : 'di bawah') . ' EMA21, RSI ' . round($r)];
+        return ['s' => $this->clamp($s), 'note' => $this->tf['trigger'] . ': EMA9 ' . (I::last($e9) > I::last($e21) ? 'di atas' : 'di bawah') . ' EMA21, RSI ' . round($r)];
     }
 
     private function fStructure(float $price, array $cl, array $swH, array $swL, float $atr): array
@@ -347,7 +362,7 @@ final class SignalEngine
             $txt[] = 'dekat resistance';
         }
         $s = $this->clamp(0.45 * $trendS + 0.25 * $bos + 0.30 * $prox);
-        return ['s' => $s, 'note' => 'Struktur 1h: ' . ($txt ? implode(', ', $txt) : 'netral')];
+        return ['s' => $s, 'note' => 'Struktur ' . $this->tf['main'] . ': ' . ($txt ? implode(', ', $txt) : 'netral')];
     }
 
     private function fFlow(array $cl, array $op, array $vo): array
@@ -404,7 +419,7 @@ final class SignalEngine
                 elseif ($pcn < 0 && $oc < -1) $q = 0.2;
             }
             $parts[] = [0.30, $q];
-            $txt[] = 'harga ' . ($pc >= 0 ? '+' : '') . round($pc, 1) . '% / OI ' . ($oc >= 0 ? '+' : '') . round($oc, 1) . '% (12j)';
+            $txt[] = 'harga ' . ($pc >= 0 ? '+' : '') . round($pc, 1) . '% / OI ' . ($oc >= 0 ? '+' : '') . round($oc, 1) . '% (' . $this->tf['oi'] . ')';
         }
         // Rasio akun long/short (kontrarian di ekstrem)
         $ls = $fu['ls'] ?? [];

@@ -12,7 +12,8 @@ async function get<T>(url: string): Promise<T> {
 }
 
 export const getSymbols = () => get<SymbolRow[]>('/api/symbols');
-export const getAnalysis = (s: string) => get<Analysis>(`/api/analysis/${s}`);
+export const getAnalysis = (s: string, mode: 'swing' | 'scalp' = 'swing') =>
+  get<Analysis>(`/api/analysis/${s}${mode === 'scalp' ? '?mode=scalp' : ''}`);
 export const getCandles = (s: string, tf: string) => get<CandleResp>(`/api/candles/${s}?tf=${tf}`);
 export const getHistory = () => get<HistoryResp>('/api/history');
 export const getTrack = () => get<TrackResp>('/api/track');

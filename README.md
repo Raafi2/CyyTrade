@@ -50,6 +50,21 @@ npm run dev
 
 Buka http://127.0.0.1:8000
 
+## Tab Scalping
+
+Isi pair, arah, entry, modal (USDT), dan leverage. Tombol "Isi SL/TP otomatis" mengusulkan SL/TP dari
+analisis scalp (candle 1m/5m/15m) atau ATR 5m; boleh diubah manual. Setelah "Mulai pantau":
+
+- Harga tiap trade (`@aggTrade`) dipantau langsung dari WebSocket Binance. TP, SL, atau likuidasi memicu
+  notifikasi browser, bunyi, judul tab berkedip, dan getar (di perangkat yang mendukung).
+- Candle 1m nyata dicek ulang bila tab sempat tertahan atau koneksi putus, jadi level yang tersentuh saat itu tetap
+  terdeteksi (SL dan TP di candle yang sama dihitung SL).
+- Peringatan dini bila harga tinggal 25% jarak ke SL, dan bila sinyal scalp berbalik melawan posisi.
+- Perkiraan waktu dihitung dari volatilitas 1m nyata dengan model gerak acak tanpa arah: ini statistik, bukan prediksi.
+- PnL bersih memakai fee taker 0,05% per sisi. Harga likuidasi adalah perkiraan isolated (maintenance margin 0,5%).
+- Posisi disimpan di `localStorage` browser. Alert hanya jalan selama tab terbuka; tidak ada proses latar belakang.
+- Sinyal scalp tidak masuk Riwayat/statistik. Sinyal dengan SL terlalu rapat (fee > 0,25R) ditolak otomatis.
+
 ## Hasil sinyal (tab Riwayat)
 
 Sinyal terbuka diselesaikan memakai **candle 1m nyata** sejak sinyal dibuka (dicek otomatis saat web dibuka dan
@@ -71,6 +86,7 @@ tiap menit). Aturan, dari yang paling konservatif:
 | `SIGNAL_FUTURES_TTL` | 300 | detik cache OI/long-short/taker |
 | `SIGNAL_FEE_PCT` | 0.10 | fee round-trip (%) |
 | `SIGNAL_SLIPPAGE_PCT` | 0.04 | perkiraan slippage (%) |
+| `SIGNAL_SCALP_MAX_COST_R` | 0.25 | batas fee+slippage (dalam R) untuk sinyal scalp |
 | `BINANCE_FAPI_BASE` | https://fapi.binance.com | ganti jika endpoint REST diblokir |
 | `VITE_BINANCE_WS` | wss://fstream.binance.com | ganti jika WebSocket diblokir |
 | `BINANCE_CA_BUNDLE` | (kosong) | path CA bundle jika ada error SSL |

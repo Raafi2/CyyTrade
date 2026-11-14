@@ -48,10 +48,11 @@ function LiveBlock({ a, livePrice, mark }: { a: Analysis; livePrice?: number; ma
   );
 }
 
-const LABEL: Record<string, string> = {
-  htf: 'Tren 4h', setup: 'Tren 1h', momentum: 'Momentum 1h', trigger: 'Trigger 15m',
+const label = (scalp: boolean): Record<string, string> => ({
+  htf: scalp ? 'Tren 15m' : 'Tren 4h', setup: scalp ? 'Tren 5m' : 'Tren 1h',
+  momentum: scalp ? 'Momentum 5m' : 'Momentum 1h', trigger: scalp ? 'Trigger 1m' : 'Trigger 15m',
   structure: 'Struktur harga', flow: 'Aliran volume', futures: 'Posisi futures', btc: 'Konteks BTC',
-};
+});
 
 function RiskCalc({ a }: { a: Analysis }) {
   const lv = a.levels!;
@@ -185,7 +186,7 @@ export default function Detail({ a, livePrice, mark }: { a: Analysis | null; liv
         <div className="factors">
           {Object.entries(a.factors).map(([k, f]) => (
             <div className="frow" key={k} title={f.note}>
-              <span className="fname">{LABEL[k] ?? k}</span>
+              <span className="fname">{label(a.mode === 'scalp')[k] ?? k}</span>
               <span className="fbar">
                 <i className="mid" />
                 <u className={f.s >= 0 ? 'bg-long' : 'bg-short'} style={f.s >= 0 ? { left: '50%', width: `${f.s * 50}%` } : { right: '50%', width: `${-f.s * 50}%` }} />

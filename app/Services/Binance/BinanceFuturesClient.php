@@ -311,23 +311,25 @@ class BinanceFuturesClient
 
     /**
      * Paket data lengkap satu pair untuk analisis. Hanya bagian yang kedaluwarsa yang diambil ulang,
-     * semuanya dalam satu pool paralel.
+     * semuanya dalam satu pool paralel. $mode memilih preset timeframe (config signal.modes).
      *
-     * @return array{c15:array,c1h:array,c4h:array,price:float,price_at:int,mark:?float,funding:?float,next_funding:?int,futures:?array}
+     * @return array{trig:array,main:array,htf:array,price:float,price_at:int,mark:?float,funding:?float,next_funding:?int,futures:?array,tf:array}
      */
-    public function bundle(string $symbol): array
+    public function bundle(string $symbol, string $mode = 'swing'): array
     {
+        $tf = config("signal.modes.$mode") ?? config('signal.modes.swing');
+        $futTtl = (int) ($tf['fut_ttl'] ?? config('signal.futures_ttl'));
         $plan = [
-            'k15' => ["bn:k:$symbol:15m", $this->untilNextClose('15m')],
-            'k1h' => ["bn:k:$symbol:1h", $this->untilNextClose('1h')],
-            'k4h' => ["bn:k:$symbol:4h", $this->untilNextClose('4h')],
-            'live' => ["bn:live:$symbol", max(1, (int) config('signal.live_ttl'))],
-            'fut' => ["bn:fut:$symbol", max(30, (int) config('signal.futures_ttl'))],
+            'trig' => ["bn:k:$symbol:{$tf['trig']}", $this->untilNextClose($tf['trig']), $tf['trig']],
+            'main' => ["bn:k:$symbol:{$tf['main']}", $this->untilNextClose($tf['main']), $tf['main']],
+            'htf' => ["bn:k:$symbol:{$tf['htf']}", $this->untilNextClose($tf['htf']), $tf['htf']],
+            'live' => ["bn:live:$symbol", max(1, (int) config('signal.live_ttl')), null],
+            'fut' => ["bn:fut:$symbol:{$tf['fut']}", max(30, $futTtl), $tf['fut']],
         ];
 
         $data = $this->readPlan($plan);
         if (in_array(null, $data, true)) {
-            $this->withLock("bn:bundle:$symbol", function () use ($symbol, $plan, &$data) {
+            $this->withLock("bn:bundle:$symbol:$mode", function () use ($symbol, $plan, &$data) {
                 $data = $this->readPlan($plan);
                 $missing = array_keys(array_filter($data, fn ($v) => $v === null));
                 if ($missing !== []) {
@@ -343,15 +345,16 @@ class BinanceFuturesClient
         }
 
         return [
-            'c15' => $data['k15'],
-            'c1h' => $data['k1h'],
-            'c4h' => $data['k4h'],
+            'trig' => $data['trig'],
+            'main' => $data['main'],
+            'htf' => $data['htf'],
             'price' => $live['price'],
             'price_at' => $live['at'],
             'mark' => $live['mark'] ?? null,
             'funding' => $live['funding'] ?? null,
             'next_funding' => $live['next_funding'] ?? null,
             'futures' => $fut ?: null,
+            'tf' => $tf,
         ];
     }
 
@@ -364,11 +367,10 @@ class BinanceFuturesClient
     private function fetchMissing(string $symbol, array $missing, array $plan, array &$data): void
     {
         $p = ['symbol' => $symbol];
-        $tfs = ['k15' => '15m', 'k1h' => '1h', 'k4h' => '4h'];
         $reqs = [];
-        foreach ($tfs as $k => $tf) {
+        foreach (['trig', 'main', 'htf'] as $k) {
             if (in_array($k, $missing, true)) {
-                $reqs[$k] = ['/fapi/v1/klines', $p + ['interval' => $tf, 'limit' => 300]];
+                $reqs[$k] = ['/fapi/v1/klines', $p + ['interval' => $plan[$k][2], 'limit' => 300]];
             }
         }
         if (in_array('live', $missing, true)) {
@@ -376,9 +378,10 @@ class BinanceFuturesClient
             $reqs['prem'] = ['/fapi/v1/premiumIndex', $p];
         }
         if (in_array('fut', $missing, true)) {
-            $reqs['oi'] = ['/futures/data/openInterestHist', $p + ['period' => '1h', 'limit' => 30]];
-            $reqs['ls'] = ['/futures/data/globalLongShortAccountRatio', $p + ['period' => '1h', 'limit' => 30]];
-            $reqs['tk'] = ['/futures/data/takerlongshortRatio', $p + ['period' => '1h', 'limit' => 30]];
+            $period = $plan['fut'][2];
+            $reqs['oi'] = ['/futures/data/openInterestHist', $p + ['period' => $period, 'limit' => 30]];
+            $reqs['ls'] = ['/futures/data/globalLongShortAccountRatio', $p + ['period' => $period, 'limit' => 30]];
+            $reqs['tk'] = ['/futures/data/takerlongshortRatio', $p + ['period' => $period, 'limit' => 30]];
         }
 
         $this->assertNotBackedOff();
@@ -396,12 +399,12 @@ class BinanceFuturesClient
             $this->noteStatus($r);
         }
 
-        foreach ($tfs as $k => $tf) {
+        foreach (['trig', 'main', 'htf'] as $k) {
             if (! in_array($k, $missing, true)) {
                 continue;
             }
             if (! $this->ok($res[$k])) {
-                throw new RuntimeException("Data $symbol ($tf) gagal diambil dari Binance.");
+                throw new RuntimeException("Data $symbol ({$plan[$k][2]}) gagal diambil dari Binance.");
             }
             $val = $this->closedOnly($res[$k]->json());
             Cache::put($plan[$k][0], $val, $plan[$k][1]);
@@ -452,10 +455,10 @@ class BinanceFuturesClient
         });
     }
 
-    /** Candle 1h BTC (konteks pasar) untuk analisis altcoin. */
-    public function btc1h(): array
+    /** Candle BTC closed (konteks pasar) untuk analisis altcoin, pada timeframe utama mode yang dipakai. */
+    public function btcCandles(string $tf = '1h'): array
     {
-        return $this->closedCandles('BTCUSDT', '1h');
+        return $this->closedCandles('BTCUSDT', $tf);
     }
 
     /** Candle untuk chart, termasuk candle yang sedang berjalan. Cache hanya beberapa detik. */

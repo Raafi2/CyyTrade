@@ -34,9 +34,12 @@ interface Props {
   mode: LiveMode;
   epoch: number;
   livePrice?: number;
+  /** garis kustom (mis. posisi scalping); bila ada, menggantikan garis sinyal */
+  lines?: { price: number; color: string; title: string; dotted?: boolean }[];
+  defaultTf?: (typeof TFS)[number];
 }
 
-export default function Chart({ symbol, analysis, mode, epoch, livePrice }: Props) {
+export default function Chart({ symbol, analysis, mode, epoch, livePrice, lines: custom, defaultTf = '1h' }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candle = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -45,7 +48,7 @@ export default function Chart({ symbol, analysis, mode, epoch, livePrice }: Prop
   const lines = useRef<IPriceLine[]>([]);
   const bars = useRef<Bar[]>([]);
   const fitted = useRef('');
-  const [tf, setTf] = useState<(typeof TFS)[number]>('1h');
+  const [tf, setTf] = useState<(typeof TFS)[number]>(defaultTf);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -128,6 +131,12 @@ export default function Chart({ symbol, analysis, mode, epoch, livePrice }: Prop
     if (!s) return;
     lines.current.forEach((l) => s.removePriceLine(l));
     lines.current = [];
+    if (custom) {
+      custom.forEach((l) => lines.current.push(s.createPriceLine({
+        price: l.price, color: l.color, lineWidth: 1, lineStyle: l.dotted ? LineStyle.Dotted : LineStyle.Dashed, axisLabelVisible: true, title: l.title,
+      })));
+      return;
+    }
     const lv = analysis?.levels;
     if (!analysis || !lv || analysis.lean === 'NEUTRAL') return;
     const add = (price: number, color: string, title: string, style = LineStyle.Dashed) =>
@@ -137,7 +146,7 @@ export default function Chart({ symbol, analysis, mode, epoch, livePrice }: Prop
     add(lv.sl, C.short, 'SL');
     add(lv.tp1, C.long, 'TP1');
     add(lv.tp2, C.long, 'TP2', LineStyle.Dotted);
-  }, [analysis, symbol, tf]);
+  }, [analysis, custom, symbol, tf]);
 
   return (
     <section className="panel chart">

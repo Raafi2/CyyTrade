@@ -1,11 +1,12 @@
 export type Side = 'LONG' | 'SHORT' | 'NEUTRAL';
 
 export interface Factor { s: number; w_pct: number; note: string }
-export interface Levels { entry: number; sl: number; tp1: number; tp2: number; rr1: number; rr2: number; risk_pct: number }
+export interface Levels { entry: number; sl: number; tp1: number; tp2: number; rr1: number; rr2: number; risk_pct: number; cost_r?: number }
 export interface Regime { trend: 'TREND' | 'RANGE' | 'TRANSISI'; adx: number; vol: 'NORMAL' | 'TINGGI' | 'EKSTREM'; atr_pct: number }
 export interface LiveInfo { mark: number | null; funding: number | null; next_funding: number | null }
 
 export interface Analysis {
+  mode?: 'swing' | 'scalp';
   symbol: string; price: number; side: Side; lean: Side; bias: number; confidence: number; tier: string;
   regime: Regime | null; levels: Levels | null; factors: Record<string, Factor>;
   reasons: string[]; warnings: string[]; vetoes: string[]; notes: string[];

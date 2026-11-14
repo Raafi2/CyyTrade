@@ -23,7 +23,7 @@ export interface LiveSnapshot {
 interface WsMsg {
   e?: string; E?: number; s?: string;
   c?: string; o?: string;                 // miniTicker
-  p?: string; r?: string; T?: number;     // markPrice
+  p?: string; r?: string; T?: number;     // markPrice / aggTrade (p = harga)
   k?: { t: number; i: string; o: string; h: string; l: string; c: string; x: boolean };
 }
 
@@ -43,6 +43,7 @@ class Feed {
   private wanted = new Map<string, number>();
   private subscribed = new Set<string>();
   private klineCbs = new Map<string, Set<(k: KlineMsg) => void>>();
+  private tickCbs = new Map<string, Set<(price: number, ts: number) => void>>();
   private msgId = 1;
   private fails = 0;
   private started = false;
@@ -139,7 +140,10 @@ class Feed {
     try {
       const rows = await getSymbols();
       const ts = Date.now();
-      for (const r of rows) this.ticks[r.symbol] = { price: r.price, change24h: r.change24h, ts };
+      for (const r of rows) {
+        this.ticks[r.symbol] = { price: r.price, change24h: r.change24h, ts };
+        this.emitTick(r.symbol, r.price, ts);
+      }
       this.scheduleFlush();
     } catch { /* abaikan, coba lagi di siklus berikutnya */ }
   }
@@ -162,6 +166,20 @@ class Feed {
     set.add(cb);
     this.klineCbs.set(stream, set);
     return () => { set.delete(cb); };
+  }
+
+  /** Callback sinkron di setiap harga masuk (tanpa menunggu flush UI), supaya alert tidak terlambat. */
+  onTick(symbol: string, cb: (price: number, ts: number) => void): () => void {
+    const key = symbol.toUpperCase();
+    const set = this.tickCbs.get(key) ?? new Set();
+    set.add(cb);
+    this.tickCbs.set(key, set);
+    return () => { set.delete(cb); };
+  }
+
+  private emitTick(symbol: string, price: number, ts: number) {
+    const cbs = this.tickCbs.get(symbol);
+    if (cbs && cbs.size) cbs.forEach((cb) => cb(price, ts));
   }
 
   private scheduleSync() {
@@ -201,6 +219,12 @@ class Feed {
         if (!Number.isFinite(c)) return;
         this.ticks[m.s] = { price: c, change24h: o > 0 ? ((c - o) / o) * 100 : 0, ts: m.E ?? Date.now() };
         this.scheduleFlush();
+        this.emitTick(m.s, c, m.E ?? Date.now());
+        break;
+      }
+      case 'aggTrade': {
+        const p = Number(m.p);
+        if (Number.isFinite(p)) this.emitTick(m.s, p, m.T ?? Date.now());
         break;
       }
       case 'markPriceUpdate': {
@@ -250,5 +274,18 @@ export function useKline(symbol: string | null, tf: string, cb: (k: KlineMsg) =>
   }, [symbol, tf]);
 }
 
+/** Harga tiap trade (`@aggTrade`) untuk satu pair, selama komponen terpasang. Memanggil cb di setiap harga. */
+export function useTicks(symbol: string | null, cb: (price: number, ts: number) => void) {
+  const ref = useRef(cb);
+  ref.current = cb;
+  useEffect(() => {
+    if (!symbol) return undefined;
+    const release = feed.want([aggStream(symbol)]);
+    const off = feed.onTick(symbol, (p, t) => ref.current(p, t));
+    return () => { off(); release(); };
+  }, [symbol]);
+}
+
+export const aggStream = (symbol: string): string => `${symbol.toLowerCase()}@aggTrade`;
 export const symbolStreams = (symbols: string[]): string[] => symbols.map((s) => `${s.toLowerCase()}@miniTicker`);
 export const markStream = (symbol: string): string => `${symbol.toLowerCase()}@markPrice@1s`;

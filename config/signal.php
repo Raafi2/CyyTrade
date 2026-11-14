@@ -25,6 +25,18 @@ return [
     'fee_pct' => (float) env('SIGNAL_FEE_PCT', 0.10),
     'slippage_pct' => (float) env('SIGNAL_SLIPPAGE_PCT', 0.04),
 
+    // Preset timeframe. trig = pemicu entry, main = tren/level utama (ATR, swing, EMA), htf = tren besar,
+    // fut = periode data OI/long-short/taker, oi = label jendela OI di teks penjelasan.
+    // scalp: SL ikut ATR 5m, jadi bisa sangat rapat; max_cost_r menolak sinyal yang fee-nya
+    // memakan lebih dari batas R per trade.
+    'modes' => [
+        'swing' => ['trig' => '15m', 'main' => '1h', 'htf' => '4h', 'fut' => '1h', 'oi' => '12j'],
+        'scalp' => [
+            'trig' => '1m', 'main' => '5m', 'htf' => '15m', 'fut' => '5m', 'oi' => '1j',
+            'fut_ttl' => 60, 'min_confidence' => 65, 'max_cost_r' => (float) env('SIGNAL_SCALP_MAX_COST_R', 0.25),
+        ],
+    ],
+
     'min_confidence' => 60,
     'bias_threshold' => 0.22,
 
