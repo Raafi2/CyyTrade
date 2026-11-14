@@ -1,17 +1,19 @@
 import { useMemo } from 'react';
 import { base, fmtPct, fmtPrice, sideWord } from '../format';
+import type { Tick } from '../live';
 import { isErr, type Entry, type SymbolRow } from '../types';
 
 interface Props {
   rows: SymbolRow[];
   results: Record<string, Entry>;
+  ticks: Record<string, Tick>;
   selected: string | null;
   onSelect: (s: string) => void;
   onlyActive: boolean;
   setOnlyActive: (v: boolean) => void;
 }
 
-export default function Watchlist({ rows, results, selected, onSelect, onlyActive, setOnlyActive }: Props) {
+export default function Watchlist({ rows, results, ticks, selected, onSelect, onlyActive, setOnlyActive }: Props) {
   const sorted = useMemo(() => {
     const rank = (s: string) => {
       const e = results[s];
@@ -43,11 +45,14 @@ export default function Watchlist({ rows, results, selected, onSelect, onlyActiv
         {shown.map((r) => {
           const e = results[r.symbol];
           const a = e && !isErr(e) ? e : null;
+          const t = ticks[r.symbol];
+          const price = t?.price ?? r.price;
+          const change = t?.change24h ?? r.change24h;
           return (
             <button key={r.symbol} className={`row${selected === r.symbol ? ' sel' : ''}`} onClick={() => onSelect(r.symbol)}>
               <span className="pair">
                 <b>{base(r.symbol)}</b>
-                <i className="mono dim">{fmtPrice(r.price)}</i>
+                <i className="mono dim">{fmtPrice(price)}</i>
               </span>
               <span className="dir">
                 {!e && <span className="dim">memuat…</span>}
@@ -64,7 +69,7 @@ export default function Watchlist({ rows, results, selected, onSelect, onlyActiv
                   <u style={{ width: `${a.confidence}%` }} className={a.side === 'NEUTRAL' ? 'bar-muted' : a.side === 'LONG' ? 'bg-long' : 'bg-short'} />
                 )}
               </span>
-              <span className={`r mono ${r.change24h >= 0 ? 'long' : 'short'}`}>{fmtPct(r.change24h, 1)}</span>
+              <span className={`r mono ${change >= 0 ? 'long' : 'short'}`}>{fmtPct(change, 1)}</span>
             </button>
           );
         })}

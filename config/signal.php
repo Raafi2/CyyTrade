@@ -3,15 +3,27 @@
 return [
     'binance_base' => env('BINANCE_FAPI_BASE', 'https://fapi.binance.com'),
     'ssl_verify' => env('BINANCE_SSL_VERIFY', true),
+    // Path CA bundle kustom (opsional). Jika kosong dipakai storage/cacert.pem atau bawaan PHP.
+    'ca_bundle' => env('BINANCE_CA_BUNDLE', ''),
 
     // Jumlah pair teratas (berdasarkan volume 24 jam USDT-M perpetual) dan batas likuiditas minimum
     'watchlist_size' => (int) env('SIGNAL_WATCHLIST', 20),
     'min_quote_volume' => (float) env('SIGNAL_MIN_VOLUME', 100_000_000),
-    'cache_ttl' => (int) env('SIGNAL_CACHE_TTL', 90),
+
+    // Cache data. Candle closed di-cache sampai candle berikutnya close (otomatis).
+    // live_ttl: harga/mark/funding, hanya untuk meredam request serentak (detik).
+    // futures_ttl: OI, long/short, taker. Dari Binance memang per jam (detik).
+    'live_ttl' => (int) env('SIGNAL_LIVE_TTL', 3),
+    'futures_ttl' => (int) env('SIGNAL_FUTURES_TTL', 300),
 
     // Sinyal baru dicatat ke riwayat hanya jika side != NEUTRAL; duplikat dalam N jam diabaikan
     'record_dedupe_hours' => 12,
     'track_max_hours' => 48,
+
+    // Biaya yang dikurangkan dari hasil sinyal (persen dari nilai posisi, round-trip).
+    // fee: taker 0.05% x 2. slippage: perkiraan. Funding riil diambil dari Binance.
+    'fee_pct' => (float) env('SIGNAL_FEE_PCT', 0.10),
+    'slippage_pct' => (float) env('SIGNAL_SLIPPAGE_PCT', 0.04),
 
     'min_confidence' => 60,
     'bias_threshold' => 0.22,

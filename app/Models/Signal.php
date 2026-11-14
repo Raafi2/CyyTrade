@@ -14,6 +14,6 @@ class Signal extends Model
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
         'entry' => 'float', 'sl' => 'float', 'tp1' => 'float', 'tp2' => 'float',
-        'rr1' => 'float', 'rr2' => 'float', 'r_result' => 'float',
+        'rr1' => 'float', 'rr2' => 'float', 'r_result' => 'float', 'gross_r' => 'float', 'cost_r' => 'float',
     ];
 }

@@ -36,8 +36,9 @@ export default function History() {
         <div className="stat"><span className="label">Sedang berjalan</span><b className="mono">{d.stats.open}</b></div>
       </div>
       <p className="fine pad">
-        Hasil dihitung otomatis dari candle 15m (konservatif: bila SL dan TP tersentuh di candle yang sama dianggap SL).
-        Belum termasuk biaya &amp; slippage. Gunakan ini sebagai forward-test sebelum menaikkan ukuran posisi.
+        Hasil dihitung dari candle 1m nyata Binance sejak sinyal dibuka, bukan simulasi data buatan. Bila urutan harga dalam
+        satu candle tidak pasti, dipakai asumsi terburuk. Angka R sudah bersih: dikurangi fee, slippage, dan funding riil.
+        Sinyal hanya dicatat dan diselesaikan saat web ini dibuka, jadi ini bukan eksekusi order sungguhan.
       </p>
       <div className="table-wrap">
         <table className="mono">
@@ -53,7 +54,10 @@ export default function History() {
                 <td>{s.confidence}</td>
                 <td>{fmtPrice(s.entry)}</td><td>{fmtPrice(s.sl)}</td><td>{fmtPrice(s.tp1)}</td><td>{fmtPrice(s.tp2)}</td>
                 <td>{STATUS[s.status]}</td>
-                <td className={s.r_result === null ? 'dim' : s.r_result >= 0 ? 'long' : 'short'}>
+                <td
+                  className={s.r_result === null ? 'dim' : s.r_result >= 0 ? 'long' : 'short'}
+                  title={s.gross_r === null ? undefined : `kotor ${s.gross_r}R, biaya ${s.cost_r ?? 0}R`}
+                >
                   {s.r_result === null ? '–' : `${s.r_result > 0 ? '+' : ''}${s.r_result}R`}
                 </td>
               </tr>

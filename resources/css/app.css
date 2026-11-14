@@ -25,6 +25,16 @@ nav button.on { color: var(--text); border-bottom-color: var(--amber); }
 .btn:hover:not(:disabled) { border-color: var(--amber); } .btn:disabled { opacity: .5; cursor: default; }
 
 .banner { margin: 10px 14px; padding: 8px 12px; border: 1px solid #5a2623; background: #1a0f0f; color: #e8a09b; border-radius: 2px; }
+.banner.info { border-color: #2f4a3f; background: #0e1713; color: #9fd1bd; }
+
+/* status koneksi data */
+.live { display: inline-flex; align-items: center; gap: 6px; font: 600 10px/1 var(--mono); letter-spacing: .1em; padding: 4px 8px; border: 1px solid var(--line2); border-radius: 2px; color: var(--muted); cursor: help; }
+.live i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.live.live { color: var(--long); border-color: #1f4a3b; } .live.live i { background: var(--long); animation: pulse 1.8s ease-in-out infinite; }
+.live.polling { color: var(--amber); border-color: #4d3d17; } .live.polling i { background: var(--amber); }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .live.live i { animation: none; } }
+.last-price { font-size: 13px; font-weight: 600; }
 
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr) 380px; gap: 1px; background: var(--line); }
 .panel { background: var(--panel); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

@@ -1,6 +1,52 @@
 import { useEffect, useState } from 'react';
 import { base, fmtPrice, fmtUsd, sideWord } from '../format';
+import type { Mark } from '../live';
 import type { Analysis } from '../types';
+
+function countdown(ms: number): string {
+  const m = Math.max(0, Math.floor(ms / 60_000));
+  return `${Math.floor(m / 60)}j ${m % 60}m`;
+}
+
+/** Harga/mark/funding live dan seberapa jauh harga sudah bergeser dari entry sinyal. */
+function LiveBlock({ a, livePrice, mark }: { a: Analysis; livePrice?: number; mark?: Mark }) {
+  const lv = a.levels;
+  const price = livePrice ?? a.price;
+  const markPx = mark?.mark ?? a.live?.mark ?? null;
+  const funding = mark?.funding ?? a.live?.funding ?? null;
+  const next = mark?.nextFunding ?? a.live?.next_funding ?? null;
+
+  let drift: number | null = null;
+  if (lv && a.side !== 'NEUTRAL') {
+    const risk = Math.abs(lv.entry - lv.sl);
+    if (risk > 0) drift = ((price - lv.entry) / risk) * (a.side === 'LONG' ? 1 : -1);
+  }
+
+  return (
+    <div className="block">
+      <h4>Data live</h4>
+      <dl className="kv mono">
+        <dt>Harga terakhir</dt><dd>{fmtPrice(price)}</dd>
+        {markPx !== null && <><dt>Mark price</dt><dd>{fmtPrice(markPx)}</dd></>}
+        {funding !== null && (
+          <>
+            <dt>Funding</dt>
+            <dd>{(funding * 100).toFixed(4)}%{next ? <i> · berikutnya {countdown(next - Date.now())}</i> : null}</dd>
+          </>
+        )}
+        {drift !== null && (
+          <>
+            <dt>Geser dari entry</dt>
+            <dd className={drift >= 0 ? 'long' : 'short'}>{drift > 0 ? '+' : ''}{drift.toFixed(2)}R</dd>
+          </>
+        )}
+      </dl>
+      {drift !== null && drift <= -1 && <p className="note-bad">Harga sudah menyentuh area SL. Sinyal ini tidak valid lagi.</p>}
+      {drift !== null && drift > -1 && drift < -0.5 && <p className="note-bad">Harga bergerak berlawanan dari entry. Lebih baik menunggu atau lewati.</p>}
+      {drift !== null && drift > 0.3 && <p className="note-bad">Harga sudah bergerak {drift.toFixed(1)}R ke arah sinyal. Masuk sekarang berarti mengejar dan R:R menyusut.</p>}
+    </div>
+  );
+}
 
 const LABEL: Record<string, string> = {
   htf: 'Tren 4h', setup: 'Tren 1h', momentum: 'Momentum 1h', trigger: 'Trigger 15m',
@@ -59,7 +105,7 @@ function RiskCalc({ a }: { a: Analysis }) {
   );
 }
 
-export default function Detail({ a }: { a: Analysis | null }) {
+export default function Detail({ a, livePrice, mark }: { a: Analysis | null; livePrice?: number; mark?: Mark }) {
   if (!a) return <section className="panel detail"><div className="empty">Pilih pair dari watchlist.</div></section>;
 
   const active = a.side !== 'NEUTRAL';
@@ -71,7 +117,7 @@ export default function Detail({ a }: { a: Analysis | null }) {
     <section className="panel detail">
       <div className="panel-head">
         <span className="label">{base(a.symbol)} · Analisis</span>
-        <span className="mono dim small">{time}</span>
+        <span className="mono dim small" title="Waktu harga saat analisis dihitung">analisis {time}</span>
       </div>
 
       <div className="verdict">
@@ -97,6 +143,8 @@ export default function Detail({ a }: { a: Analysis | null }) {
           </div>
         )}
       </div>
+
+      <LiveBlock a={a} livePrice={livePrice} mark={mark} />
 
       {(a.vetoes.length > 0 || a.notes.length > 0) && (
         <div className="block alert">
