@@ -52,7 +52,7 @@ Buka http://127.0.0.1:8000
 
 ## Tab Scalping
 
-Isi pair, arah, entry, modal (USDT), dan leverage. SL/TP terisi otomatis dari
+Isi pair, arah, entry, modal (USDT), dan leverage. SL/TP tidak diisi: setelah "Mulai pantau" aplikasi menyarankannya dari
 analisis scalp (candle 1m/5m/15m) atau ATR 5m, disesuaikan dengan leverage (SL tidak melewati batas aman likuidasi), lengkap dengan
 verdict (searah/netral/berlawanan) dan perkiraan waktu. Boleh diubah manual. Setelah "Mulai pantau":
 
@@ -81,8 +81,8 @@ tiap menit). Aturan, dari yang paling konservatif:
 
 | Key | Default | Fungsi |
 |---|---|---|
-| `SIGNAL_WATCHLIST` | 50 | jumlah pair teratas (volume 24j) |
-| `SIGNAL_MIN_VOLUME` | 50000000 | volume minimum 24j (USDT) |
+| `SIGNAL_WATCHLIST` | 100 | jumlah pair teratas (volume 24j) |
+| `SIGNAL_MIN_VOLUME` | 10000000 | volume minimum 24j (USDT) |
 | `SIGNAL_LIVE_TTL` | 3 | detik cache harga/mark/funding (hanya meredam request serentak) |
 | `SIGNAL_FUTURES_TTL` | 300 | detik cache OI/long-short/taker |
 | `SIGNAL_FEE_PCT` | 0.10 | fee round-trip (%) |
@@ -95,7 +95,7 @@ tiap menit). Aturan, dari yang paling konservatif:
 ## Keamanan API
 
 - Hanya simbol USDT-M perpetual yang benar-benar ada di Binance yang dilayani (selain itu 404).
-- Rate limit 300 request/menit per IP.
+- Rate limit 600 request/menit per IP.
 - Jika Binance membalas 429/418, semua request dihentikan sampai waktu yang diminta (`Retry-After`).
 - `Cache::lock` mencegah banyak request mengambil data yang sama sekaligus.
 - Pesan error mentah tidak dikirim ke klien.

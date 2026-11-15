@@ -65,6 +65,33 @@ function Watcher({ pos, epoch, onPrice, onBars, onAnalysis }: {
   return null;
 }
 
+export interface Advice {
+  sl: number; tp: number; src: string; capped: boolean; verdict: 'with' | 'neutral' | 'against'; maxLev: number; a: Analysis;
+}
+
+/** Saran SL/TP dari analisis scalp nyata. SL dibatasi supaya tidak melewati batas aman likuidasi pada leverage tsb. */
+export function computeAdvice(a: Analysis, side: P.Side, e: number, L: number): Advice | null {
+  if (!(e > 0) || !(L >= 1)) return null;
+  const d = side === 'LONG' ? 1 : -1;
+  let slD: number; let tpD: number; let src: string;
+  if (a.levels && a.lean === side) {
+    slD = Math.abs(a.levels.entry - a.levels.sl); tpD = Math.abs(a.levels.tp1 - a.levels.entry);
+    src = `analisis scalp (SL swing+ATR 5m, TP = ${a.levels.rr1}R)`;
+  } else if (a.regime) {
+    slD = (1.2 * a.regime.atr_pct / 100) * e; tpD = 1.5 * slD;
+    src = `ATR 5m ${a.regime.atr_pct}% (SL 1,2x ATR, TP 1,5R)`;
+  } else return null;
+  const safe = (1 / L - P.MMR) * e * 0.8;
+  const capped = slD > safe;
+  if (capped) { tpD *= safe / slD; slD = safe; }
+  const dec = e >= 100 ? 2 : e >= 1 ? 4 : e >= 0.01 ? 5 : 7;
+  return {
+    sl: Number((e - d * slD).toFixed(dec)), tp: Number((e + d * tpD).toFixed(dec)), src, capped, a,
+    verdict: a.side === side ? 'with' : a.side === 'NEUTRAL' ? 'neutral' : 'against',
+    maxLev: Math.max(1, Math.floor(1 / (slD / e / 0.8 + P.MMR))),
+  };
+}
+
 interface Props { live: LiveSnapshot; symbols: SymbolRow[] }
 
 export default function Scalping({ live, symbols }: Props) {
@@ -80,12 +107,7 @@ export default function Scalping({ live, symbols }: Props) {
   const [entry, setEntry] = useState('');
   const [margin, setMargin] = useState('10');
   const [lev, setLev] = useState('20');
-  const [sl, setSl] = useState('');
-  const [tp, setTp] = useState('');
-  const [fillNote, setFillNote] = useState<string | null>(null);
-  const [filling, setFilling] = useState(false);
-  const [manual, setManual] = useState(false); // SL/TP diubah tangan: berhenti menimpa otomatis
-  const [sug, setSug] = useState<{ symbol: string; a: Analysis; closes: number[] } | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const posRef = useRef(positions);
   posRef.current = positions;
@@ -181,86 +203,66 @@ export default function Scalping({ live, symbols }: Props) {
 
   // ---- form ----
   const nowPrice = live.ticks[symbol]?.price ?? symbols.find((s) => s.symbol === symbol)?.price;
-  const input: P.PositionInput = {
-    symbol, side, entry: parseFloat(entry) || 0, margin: parseFloat(margin) || 0,
-    leverage: parseFloat(lev) || 0, sl: parseFloat(sl) || 0, tp: parseFloat(tp) || 0,
-  };
-  const problem = P.validate(input);
-  const lv = problem ? null : P.levels(input);
-  const feeUsd = lv ? P.FEE_SIDE * P.notional(input) + P.FEE_SIDE * P.qty(input) * input.tp : 0;
+  const entryNum = parseFloat(entry) || 0;
+  const marginNum = parseFloat(margin) || 0;
+  const levNum = parseFloat(lev) || 0;
+  const formError = !(entryNum > 0 && marginNum > 0 && levNum >= 1) ? 'Isi entry, modal, dan leverage.' : null;
+  const liqPreview = !formError ? P.liquidation(side, entryNum, levNum) : null;
 
   const useNow = () => { if (nowPrice) setEntry(String(nowPrice)); };
-  // SL/TP otomatis: tiap pair/arah/entry berubah, analisis scalp nyata diambil dan SL/TP disarankan.
-  useEffect(() => { setManual(false); }, [symbol, side]);
-  const entryNum = parseFloat(entry);
-  const hasEntry = entryNum > 0;
-  useEffect(() => {
-    if (!hasEntry) { setSug(null); setFillNote(null); return undefined; }
-    let dead = false;
-    setFilling(true);
-    const t = window.setTimeout(() => {
-      Promise.all([getAnalysis(symbol, 'scalp'), getCandles(symbol, '1m')])
-        .then(([a, c]) => { if (!dead) { setSug({ symbol, a, closes: c.candles.map((x) => x.close) }); setFillNote(null); } })
-        .catch((err: Error) => { if (!dead) setFillNote(`Gagal mengambil analisis: ${err.message}`); })
-        .finally(() => { if (!dead) setFilling(false); });
-    }, 600);
-    return () => { dead = true; window.clearTimeout(t); };
-  }, [symbol, hasEntry]);
-
-  // Saran level dari analisis + leverage: SL tidak boleh melewati batas aman likuidasi.
-  const advice = useMemo(() => {
-    const e = entryNum;
-    const L = parseFloat(lev) || 0;
-    if (!sug || sug.symbol !== symbol || !(e > 0) || L < 1) return null;
-    const a = sug.a;
-    const d = side === 'LONG' ? 1 : -1;
-    let slD: number; let tpD: number; let src: string;
-    if (a.levels && a.lean === side) {
-      slD = Math.abs(a.levels.entry - a.levels.sl); tpD = Math.abs(a.levels.tp1 - a.levels.entry);
-      src = `analisis scalp (SL swing+ATR 5m, TP = ${a.levels.rr1}R)`;
-    } else if (a.regime) {
-      slD = (1.2 * a.regime.atr_pct / 100) * e; tpD = 1.5 * slD;
-      src = `ATR 5m ${a.regime.atr_pct}% (SL 1,2x ATR, TP 1,5R)`;
-    } else return null;
-    const safe = (1 / L - P.MMR) * e * 0.8; // SL maksimal 80% jarak ke likuidasi
-    const capped = slD > safe;
-    if (capped) { tpD *= safe / slD; slD = safe; }
-    const dec = e >= 100 ? 2 : e >= 1 ? 4 : e >= 0.01 ? 5 : 7;
-    const slP = Number((e - d * slD).toFixed(dec));
-    const tpP = Number((e + d * tpD).toFixed(dec));
-    const verdict: 'with' | 'neutral' | 'against' = a.side === side ? 'with' : a.side === 'NEUTRAL' ? 'neutral' : 'against';
-    const maxLev = Math.max(1, Math.floor(1 / (slD / e / 0.8 + P.MMR)));
-    return { sl: slP, tp: tpP, src, capped, verdict, a, maxLev, input: { symbol, side, entry: e, margin: parseFloat(margin) || 0, leverage: L, sl: slP, tp: tpP } as P.PositionInput };
-  }, [sug, entryNum, lev, side, symbol, margin]);
-
-  useEffect(() => {
-    if (!advice || manual) return;
-    setSl(String(advice.sl));
-    setTp(String(advice.tp));
-    setFillNote(`SL/TP otomatis dari ${advice.src}${advice.capped ? '. SL dirapatkan karena leverage tinggi' : ''}. Ubah manual bila perlu.`);
-  }, [advice, manual]);
-
-  const adviceEta = advice && !manual && sug && advice.input.margin > 0 && !P.validate(advice.input) ? P.eta(advice.input, entryNum, sug.closes) : null;
 
   const start = async () => {
-    if (problem) { setMsg(problem); return; }
+    if (formError) { setMsg(formError); return; }
     const px = live.ticks[symbol]?.price ?? nowPrice;
     if (!px) { setMsg('Harga live belum tersedia. Tunggu sebentar lalu coba lagi.'); return; }
     // Posisi dianggap sudah terisi di harga entry. Entry yang jauh dari pasar membuat SL/TP salah terpicu.
-    if (Math.abs(px - input.entry) / px > 0.003) {
-      setMsg(`Entry ${fmtPrice(input.entry)} berjarak lebih dari 0,3% dari harga sekarang (${fmtPrice(px)}). Pantau dimulai hanya untuk posisi yang sudah terisi: klik "Harga sekarang" atau isi entry sesuai fill Anda.`);
+    if (Math.abs(px - entryNum) / px > 0.003) {
+      setMsg(`Entry ${fmtPrice(entryNum)} berjarak lebih dari 0,3% dari harga sekarang (${fmtPrice(px)}). Pantau dimulai hanya untuk posisi yang sudah terisi: klik "Harga sekarang" atau isi entry sesuai fill Anda.`);
       return;
     }
-    const perm = await primeAlerts();
-    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const now = Date.now();
-    const p: Pos = {
-      id, input, openedAt: now, checkedAt: Math.floor(now / 60_000) * 60 + 60, status: 'open',
-      log: [{ t: now, m: `Mulai dipantau: ${input.side} ${base(symbol)} entry ${fmtPrice(input.entry)}, SL ${fmtPrice(input.sl)}, TP ${fmtPrice(input.tp)}, ${input.leverage}x, modal ${fmtUsd(input.margin)} USDT`, k: 'info' }],
-    };
-    setPositions((ps) => [p, ...ps.filter((x) => x.status === 'open'), ...ps.filter((x) => x.status !== 'open').slice(0, 49)]);
-    setSelId(id);
-    setMsg(perm === 'granted' ? null : 'Izin notifikasi browser belum diberikan. Bunyi, judul tab berkedip, dan banner tetap aktif.');
+    setStarting(true);
+    setMsg(null);
+    try {
+      const perm = await primeAlerts();
+      const [a, c] = await Promise.all([getAnalysis(symbol, 'scalp'), getCandles(symbol, '1m')]);
+      const adv = computeAdvice(a, side, entryNum, levNum);
+      if (!adv) { setMsg('Data analisis belum cukup untuk menyarankan SL/TP. Coba lagi sebentar.'); return; }
+      const input: P.PositionInput = { symbol, side, entry: entryNum, margin: marginNum, leverage: levNum, sl: adv.sl, tp: adv.tp };
+      const err = P.validate(input);
+      if (err) { setMsg(err); return; }
+      const lv = P.levels(input);
+      const eta = P.eta(input, entryNum, c.candles.map((x) => x.close));
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const now = Date.now();
+      const verdict = adv.verdict === 'with' ? `analisis scalp mendukung ${side} (confidence ${a.confidence})`
+        : adv.verdict === 'neutral' ? 'analisis scalp netral, tidak ada keunggulan jelas'
+          : `analisis scalp BERLAWANAN (${a.side}, confidence ${a.confidence}); pertimbangkan tidak masuk`;
+      const log: LogItem[] = [
+        { t: now, m: `Mulai dipantau: ${side} ${base(symbol)} entry ${fmtPrice(entryNum)}, ${levNum}x, modal ${fmtUsd(marginNum)} USDT`, k: 'info' },
+        { t: now, m: `Saran dari ${adv.src}: SL ${fmtPrice(adv.sl)} (${sgn(lv.lossAtSl)} USDT), TP ${fmtPrice(adv.tp)} (${sgn(lv.gainAtTp)} USDT)${adv.capped ? '. SL dirapatkan karena leverage tinggi' : ''}`, k: 'info' },
+        { t: now, m: `Penilaian: ${verdict}`, k: adv.verdict === 'against' ? 'warn' : 'info' },
+      ];
+      if (eta) log.push({ t: now, m: `Perkiraan keluar ${P.fmtDuration(eta.expectedExitMin)}, peluang TP duluan ${(eta.pTp * 100).toFixed(0)}% (statistik volatilitas)`, k: 'info' });
+      const p: Pos = { id, input, openedAt: now, checkedAt: Math.floor(now / 60_000) * 60 + 60, status: 'open', log };
+      setPositions((ps) => [p, ...ps.filter((x) => x.status === 'open'), ...ps.filter((x) => x.status !== 'open').slice(0, 49)]);
+      setAnalyses((m) => ({ ...m, [id]: a }));
+      setCloses((m) => ({ ...m, [id]: c.candles.map((x) => x.close) }));
+      setSelId(id);
+      setMsg(perm === 'granted' ? null : 'Izin notifikasi browser belum diberikan. Bunyi, judul tab berkedip, dan banner tetap aktif.');
+    } catch (e) {
+      setMsg(`Gagal mengambil analisis: ${(e as Error).message}`);
+    } finally { setStarting(false); }
+  };
+
+  /** Ubah SL/TP posisi terbuka (saran terbaru atau manual) setelah divalidasi. */
+  const editLevels = (id: string, sl: number, tp: number): string | null => {
+    const p = posRef.current.find((x) => x.id === id);
+    if (!p) return 'Posisi tidak ditemukan.';
+    const next = { ...p.input, sl, tp };
+    const err = P.validate(next);
+    if (err) return err;
+    patch(id, (x) => ({ ...x, input: next, nearWarned: false, log: [...x.log, { t: Date.now(), m: `SL/TP diubah: SL ${fmtPrice(sl)}, TP ${fmtPrice(tp)}`, k: 'info' }] }));
+    return null;
   };
 
   const closeNow = (p: Pos) => {
@@ -311,39 +313,15 @@ export default function Scalping({ live, symbols }: Props) {
               <label>Modal (USDT)<input inputMode="decimal" value={margin} onChange={(e) => setMargin(e.target.value)} /></label>
               <label>Leverage (x)<input inputMode="decimal" value={lev} onChange={(e) => setLev(e.target.value)} /></label>
               <label>&nbsp;<button className="btn" onClick={useNow} disabled={!nowPrice}>Harga sekarang</button></label>
-              <label>Stop loss<input inputMode="decimal" value={sl} onChange={(e) => { setManual(true); setSl(e.target.value); }} /></label>
-              <label>Take profit<input inputMode="decimal" value={tp} onChange={(e) => { setManual(true); setTp(e.target.value); }} /></label>
             </div>
-            {manual && advice && <button className="btn" onClick={() => setManual(false)}>Kembalikan ke saran otomatis</button>}
-            {filling && <p className="fine">Menganalisis…</p>}
-            {fillNote && !filling && <p className="fine">{fillNote}</p>}
-            {advice && (
-              <div className={`advice ${advice.verdict}`}>
-                {advice.verdict === 'with' && <b>Analisis scalp mendukung {side} (confidence {advice.a.confidence}).</b>}
-                {advice.verdict === 'neutral' && <b>Analisis scalp netral. Tidak ada keunggulan jelas, pertimbangkan menunggu.</b>}
-                {advice.verdict === 'against' && <b>Analisis scalp berlawanan ({advice.a.side}, confidence {advice.a.confidence}). Sebaiknya jangan masuk {side}.</b>}
-                {advice.maxLev < (parseFloat(lev) || 0) && <div>Dengan SL ini, leverage aman maksimal ~{advice.maxLev}x.</div>}
-                {advice.a.vetoes.slice(0, 2).map((v) => <div key={v}>{v}</div>)}
-              </div>
-            )}
-            {adviceEta && (
-              <p className="fine">Perkiraan: keluar sekitar {P.fmtDuration(adviceEta.expectedExitMin)} (TP median {P.fmtDuration(adviceEta.medianTpMin)}, SL median {P.fmtDuration(adviceEta.medianSlMin)}), peluang TP duluan {(adviceEta.pTp * 100).toFixed(0)}%. Statistik volatilitas, bukan prediksi arah.</p>
-            )}
-
-            {lv && (
+            {liqPreview !== null && (
               <dl className="kv mono preview">
-                <dt>Jarak SL / TP</dt><dd>{lv.slPct.toFixed(2)}% / {lv.tpPct.toFixed(2)}% (R:R {lv.rr.toFixed(2)})</dd>
-                <dt>Rugi di SL (bersih)</dt><dd className="short">{sgn(lv.lossAtSl)} USDT</dd>
-                <dt>Untung di TP (bersih)</dt><dd className="long">{sgn(lv.gainAtTp)} USDT</dd>
-                <dt>Likuidasi (perkiraan)</dt><dd>{fmtPrice(lv.liq)}</dd>
-                <dt>Ukuran posisi</dt><dd>{fmtUsd(P.notional(input))} USDT</dd>
-                <dt>Fee pergi-pulang</dt><dd>~{fmtUsd(feeUsd)} USDT</dd>
+                <dt>Ukuran posisi</dt><dd>{fmtUsd(P.notional({ margin: marginNum, leverage: levNum }))} USDT</dd>
+                <dt>Likuidasi (perkiraan)</dt><dd>{fmtPrice(liqPreview)}</dd>
               </dl>
             )}
-            {lv && Math.abs(lv.lossAtSl) > input.margin * 0.5 && <p className="note-bad">Rugi di SL lebih dari 50% modal. Kurangi leverage atau rapatkan SL.</p>}
-            {lv && lv.gainAtTp > 0 && feeUsd > lv.gainAtTp * 0.3 && <p className="note-bad">Fee memakan lebih dari 30% target untung. Jarak TP terlalu dekat untuk scalping dengan modal ini.</p>}
-            {problem && entry && sl && tp && <p className="note-bad">{problem}</p>}
-            <button className="btn primary" onClick={() => void start()} disabled={!!problem}>Mulai pantau</button>
+            <p className="fine">SL/TP tidak perlu diisi. Setelah "Mulai pantau", aplikasi menyarankan SL/TP dan perkiraan waktunya dari analisis nyata.</p>
+            <button className="btn primary" onClick={() => void start()} disabled={starting}>{starting ? 'Menganalisis…' : 'Mulai pantau'}</button>
             {msg && <p className="fine">{msg}</p>}
             <p className="fine">Peringatan hanya jalan selama tab ini terbuka. Izin notifikasi: {alertPermission() === 'granted' ? 'aktif' : alertPermission() === 'unsupported' ? 'tidak didukung' : 'belum aktif'}.</p>
           </div>
@@ -391,7 +369,7 @@ export default function Scalping({ live, symbols }: Props) {
           <PositionDetail
             pos={sel} price={selPrice} mark={live.marks[sel.input.symbol]?.mark}
             closes={closes[sel.id]} analysis={analyses[sel.id]}
-            onClose={() => closeNow(sel)} onRemove={() => remove(sel.id)}
+            onClose={() => closeNow(sel)} onRemove={() => remove(sel.id)} onEdit={(a, b) => editLevels(sel.id, a, b)}
           />
         ) : <div className="empty">Belum ada posisi dipilih.</div>}
       </section>
@@ -399,8 +377,9 @@ export default function Scalping({ live, symbols }: Props) {
   );
 }
 
-function PositionDetail({ pos, price, mark, closes, analysis, onClose, onRemove }: {
+function PositionDetail({ pos, price, mark, closes, analysis, onClose, onRemove, onEdit }: {
   pos: Pos; price?: number; mark?: number; closes?: number[]; analysis?: Analysis; onClose: () => void; onRemove: () => void;
+  onEdit: (sl: number, tp: number) => string | null;
 }) {
   const i = pos.input;
   const isOpen = pos.status === 'open';
@@ -413,6 +392,13 @@ function PositionDetail({ pos, price, mark, closes, analysis, onClose, onRemove 
   const toTp = px ? (d * (i.tp - px) / px) * 100 : null;
   const eta = isOpen && px && closes ? P.eta(i, px, closes) : null;
   const against = analysis && analysis.side !== 'NEUTRAL' && analysis.side !== i.side;
+  const [edSl, setEdSl] = useState('');
+  const [edTp, setEdTp] = useState('');
+  const [edMsg, setEdMsg] = useState<string | null>(null);
+  const adv = isOpen && analysis ? computeAdvice(analysis, i.side, i.entry, i.leverage) : null;
+  const advIn = adv ? { ...i, sl: adv.sl, tp: adv.tp } : null;
+  const advEta = advIn && px && closes && !P.validate(advIn) ? P.eta(advIn, px, closes) : null;
+  const advDiffers = adv && (Math.abs(adv.sl - i.sl) / i.entry > 0.0005 || Math.abs(adv.tp - i.tp) / i.entry > 0.0005);
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
   const age = Math.max(0, Math.floor((((isOpen ? Date.now() : pos.closedAt) ?? Date.now()) - pos.openedAt) / 60_000));
@@ -455,6 +441,25 @@ function PositionDetail({ pos, price, mark, closes, analysis, onClose, onRemove 
               <p className="fine">Model statistik tanpa asumsi arah: murni dari jarak ke TP/SL dan volatilitas terbaru. Bukan prediksi, dan harga bisa jauh lebih cepat atau lebih lambat.</p>
             </>
           ) : <p className="fine">Menunggu data candle 1m…</p>}
+        </div>
+      )}
+
+      {isOpen && adv && (
+        <div className="block">
+          <h4>Saran SL/TP <span className="dim">dari analisis terbaru</span></h4>
+          <dl className="kv mono">
+            <dt>Saran SL</dt><dd className="short">{fmtPrice(adv.sl)}</dd>
+            <dt>Saran TP</dt><dd className="long">{fmtPrice(adv.tp)}</dd>
+            {advEta && <><dt>Perkiraan keluar</dt><dd>{P.fmtDuration(advEta.expectedExitMin)}</dd><dt>Peluang TP duluan</dt><dd>{(advEta.pTp * 100).toFixed(0)}%</dd></>}
+          </dl>
+          <p className="fine">Dasar: {adv.src}{adv.capped ? '. SL dirapatkan karena leverage tinggi' : ''}.{adv.maxLev < i.leverage ? ` Leverage aman maksimal untuk SL ini ~${adv.maxLev}x.` : ''}</p>
+          {advDiffers && <button className="btn" onClick={() => setEdMsg(onEdit(adv.sl, adv.tp))}>Pakai saran ini</button>}
+          <div className="inputs two" style={{ marginTop: 8 }}>
+            <label>SL manual<input inputMode="decimal" value={edSl} onChange={(e) => setEdSl(e.target.value)} placeholder={fmtPrice(i.sl)} /></label>
+            <label>TP manual<input inputMode="decimal" value={edTp} onChange={(e) => setEdTp(e.target.value)} placeholder={fmtPrice(i.tp)} /></label>
+          </div>
+          <button className="btn" onClick={() => setEdMsg(onEdit(parseFloat(edSl) || i.sl, parseFloat(edTp) || i.tp))}>Terapkan manual</button>
+          {edMsg && <p className="note-bad">{edMsg}</p>}
         </div>
       )}
 

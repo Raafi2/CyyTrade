@@ -7,8 +7,8 @@ return [
     'ca_bundle' => env('BINANCE_CA_BUNDLE', ''),
 
     // Jumlah pair teratas (berdasarkan volume 24 jam USDT-M perpetual) dan batas likuiditas minimum
-    'watchlist_size' => (int) env('SIGNAL_WATCHLIST', 50),
-    'min_quote_volume' => (float) env('SIGNAL_MIN_VOLUME', 50_000_000),
+    'watchlist_size' => (int) env('SIGNAL_WATCHLIST', 100),
+    'min_quote_volume' => (float) env('SIGNAL_MIN_VOLUME', 10_000_000),
 
     // Cache data. Candle closed di-cache sampai candle berikutnya close (otomatis).
     // live_ttl: harga/mark/funding, hanya untuk meredam request serentak (detik).

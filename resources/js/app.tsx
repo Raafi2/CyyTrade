@@ -79,7 +79,7 @@ function App() {
       const btc = queue.indexOf('BTCUSDT');
       if (btc >= 0) await run(queue.splice(btc, 1)[0]);
       const worker = async () => { while (queue.length) await run(queue.shift()!); };
-      await Promise.all([worker(), worker(), worker()]);
+      await Promise.all([worker(), worker(), worker(), worker()]);
     } catch (e) {
       if (id === scanId.current) setErr((e as Error).message);
     } finally {
