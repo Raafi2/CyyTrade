@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getIncome, getPortfolio } from '../api';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { getAnalysis, getCandles, getIncome, getPortfolio } from '../api';
 import { base, fmtPrice, fmtUsd } from '../format';
 import { symbolStreams, useStreams, type LiveSnapshot } from '../live';
-import type { IncomeResp, PortResp } from '../types';
+import * as P from '../position';
+import type { Analysis, IncomeResp, PortPos, PortResp } from '../types';
+import { computeAdvice } from './Scalping';
 
 const sgn = (v: number) => `${v >= 0 ? '+' : '-'}${fmtUsd(Math.abs(v))}`;
 const cls = (v: number) => (v > 0 ? 'long' : v < 0 ? 'short' : 'dim');
@@ -24,6 +26,68 @@ function presetRange(p: Exclude<Preset, 'kustom' | 'semua'>): [string, string] {
   return [ymd(back), today];
 }
 
+
+/** Analisis scalping untuk satu posisi terbuka di akun: saran SL/TP, estimasi waktu, atau cut loss. */
+function PositionAnalysis({ p, price }: { p: PortPos; price: number }) {
+  const [a, setA] = useState<Analysis | null>(null);
+  const [closes, setCloses] = useState<number[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    const pull = () => {
+      Promise.all([getAnalysis(p.symbol, 'scalp'), getCandles(p.symbol, '1m')])
+        .then(([an, c]) => { if (!dead) { setA(an); setCloses(c.candles.map((x) => x.close)); setErr(null); } })
+        .catch((e: Error) => { if (!dead) setErr(e.message); });
+    };
+    pull();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') pull(); }, 30_000);
+    return () => { dead = true; clearInterval(t); };
+  }, [p.symbol]);
+
+  if (err && !a) return <div className="banner">Analisis gagal: {err}</div>;
+  if (!a) return <p className="fine">Menganalisis {base(p.symbol)}…</p>;
+
+  const margin = p.leverage > 0 ? p.notional / p.leverage : 0;
+  const adv = computeAdvice(a, p.side, p.entry, p.leverage, price);
+  const against = a.side !== 'NEUTRAL' && a.side !== p.side;
+  const losing = p.pnl < 0;
+  const input: P.PositionInput | null = adv ? { symbol: p.symbol, side: p.side, entry: p.entry, margin, leverage: p.leverage, sl: adv.sl, tp: adv.tp } : null;
+  const valid = !!input && margin > 0 && !P.validate(input);
+  const lv = valid && input ? P.levels(input) : null;
+  const eta = valid && input && closes ? P.eta(input, price, closes) : null;
+  const emergency = !!adv?.note && adv.note.includes('SL ideal');
+
+  let rec: { cls: string; text: string };
+  if (against && losing) rec = { cls: 'against', text: `Saran: CUT LOSS. Analisis scalp kini ${a.side} (confidence ${a.confidence}), berlawanan dengan posisi ${p.side} yang sedang rugi.` };
+  else if (emergency && losing) rec = { cls: 'against', text: 'Saran: pertimbangkan CUT LOSS. Harga sudah melewati SL ideal dari entry Anda.' };
+  else if (against) rec = { cls: 'neutral', text: `Saran: amankan profit atau tutup sebagian. Analisis scalp kini ${a.side} (confidence ${a.confidence}), berlawanan dengan posisi Anda.` };
+  else if (a.side === p.side) rec = { cls: 'with', text: `Analisis scalp masih mendukung ${p.side} (confidence ${a.confidence}). Tahan dengan SL/TP di bawah.` };
+  else rec = { cls: 'neutral', text: 'Analisis scalp netral. Tidak ada keunggulan jelas; pasang SL yang disarankan dan jangan menambah posisi.' };
+
+  return (
+    <div className="pa">
+      <div className={`advice ${rec.cls}`}><b>{rec.text}</b></div>
+      {adv?.note && <p className="note-bad">{adv.note}</p>}
+      {adv && (
+        <dl className="kv mono">
+          <dt>Saran SL</dt><dd className="short">{fmtPrice(adv.sl)}{lv ? <i> ({sgn(lv.lossAtSl)} USDT)</i> : null}</dd>
+          <dt>Saran TP</dt><dd className="long">{fmtPrice(adv.tp)}{lv ? <i> ({sgn(lv.gainAtTp)} USDT)</i> : null}</dd>
+          {eta && <><dt>Perkiraan keluar</dt><dd>{P.fmtDuration(eta.expectedExitMin)}</dd>
+            <dt>TP / SL (median)</dt><dd>{P.fmtDuration(eta.medianTpMin)} / {P.fmtDuration(eta.medianSlMin)}</dd>
+            <dt>Peluang TP duluan</dt><dd>{(eta.pTp * 100).toFixed(0)}%</dd></>}
+          {p.liq > 0 && <><dt>Likuidasi Binance</dt><dd>{fmtPrice(p.liq)}</dd></>}
+          <dt>Leverage aman (SL ini)</dt><dd>~{adv.maxLev}x{adv.maxLev < p.leverage ? ' (posisi Anda lebih tinggi)' : ''}</dd>
+        </dl>
+      )}
+      {!adv && <p className="fine">Data belum cukup untuk menyarankan SL/TP.</p>}
+      {adv && !valid && <p className="fine">Level yang disarankan tidak valid untuk posisi ini (mis. di luar batas likuidasi). Pertimbangkan menurunkan leverage atau menutup sebagian.</p>}
+      {a.vetoes.slice(0, 2).map((v) => <p key={v} className="fine">{v}</p>)}
+      <p className="fine">Dasar: {adv?.src ?? '-'} (candle 1m/5m/15m). Estimasi waktu adalah statistik volatilitas, bukan prediksi. Ini saran; Anda sendiri yang memasang order di Binance.</p>
+    </div>
+  );
+}
+
 export default function Portfolio({ live }: { live: LiveSnapshot }) {
   const [port, setPort] = useState<PortResp | null>(null);
   const [portErr, setPortErr] = useState<string | null>(null);
@@ -33,6 +97,8 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
   const [incErr, setIncErr] = useState<string | null>(null);
   const [loadingInc, setLoadingInc] = useState(false);
   const [q, setQ] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (s: string) => setExpanded((e) => { const n = new Set(e); if (n.has(s)) n.delete(s); else n.add(s); return n; });
 
   const loadPort = useCallback(() => {
     getPortfolio().then((d) => { setPort(d); setPortErr(null); }).catch((e: Error) => setPortErr(e.message));
@@ -179,20 +245,27 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
       <h4 className="pad label">Posisi terbuka ({positions.length})</h4>
       <div className="table-wrap">
         <table className="mono">
-          <thead><tr><th>Pair</th><th>Arah</th><th>Jumlah</th><th>Entry</th><th>Harga</th><th>Likuidasi</th><th>Lev</th><th>PnL</th><th>ROI</th></tr></thead>
+          <thead><tr><th></th><th>Pair</th><th>Arah</th><th>Jumlah</th><th>Entry</th><th>Harga</th><th>Likuidasi</th><th>Lev</th><th>PnL</th><th>ROI</th></tr></thead>
           <tbody>
-            {positions.map((p) => (
-              <tr key={p.symbol}>
-                <td>{base(p.symbol)}</td>
-                <td className={p.side === 'LONG' ? 'long' : 'short'}>{p.side}</td>
-                <td>{p.amt}</td><td>{fmtPrice(p.entry)}</td><td>{fmtPrice(p.px)}</td>
-                <td>{p.liq > 0 ? fmtPrice(p.liq) : '–'}</td>
-                <td>{p.leverage}x <i className="dim">{p.margin_type}</i></td>
-                <td className={cls(p.pnl)}>{sgn(p.pnl)}</td>
-                <td className={cls(p.pnl)}>{pct(p.leverage > 0 && p.notional > 0 ? (p.pnl / (p.notional / p.leverage)) * 100 : null)}</td>
-              </tr>
-            ))}
-            {!positions.length && <tr><td colSpan={9} className="empty">{needle ? 'Tidak ada posisi yang cocok.' : 'Tidak ada posisi terbuka.'}</td></tr>}
+            {positions.map((p) => {
+              const isOpen = expanded.has(p.symbol);
+              return (
+                <Fragment key={p.symbol}>
+                  <tr>
+                    <td><button className="chev" aria-expanded={isOpen} aria-label={`Analisis ${base(p.symbol)}`} onClick={() => toggle(p.symbol)}>{isOpen ? '⌄' : '›'}</button></td>
+                    <td>{base(p.symbol)}</td>
+                    <td className={p.side === 'LONG' ? 'long' : 'short'}>{p.side}</td>
+                    <td>{p.amt}</td><td>{fmtPrice(p.entry)}</td><td>{fmtPrice(p.px)}</td>
+                    <td>{p.liq > 0 ? fmtPrice(p.liq) : '–'}</td>
+                    <td>{p.leverage}x <i className="dim">{p.margin_type}</i></td>
+                    <td className={cls(p.pnl)}>{sgn(p.pnl)}</td>
+                    <td className={cls(p.pnl)}>{pct(p.leverage > 0 && p.notional > 0 ? (p.pnl / (p.notional / p.leverage)) * 100 : null)}</td>
+                  </tr>
+                  {isOpen && <tr className="expand"><td colSpan={10}><PositionAnalysis p={p} price={p.px} /></td></tr>}
+                </Fragment>
+              );
+            })}
+            {!positions.length && <tr><td colSpan={10} className="empty">{needle ? 'Tidak ada posisi yang cocok.' : 'Tidak ada posisi terbuka.'}</td></tr>}
           </tbody>
         </table>
       </div>

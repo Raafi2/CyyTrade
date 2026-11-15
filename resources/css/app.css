@@ -138,3 +138,8 @@ td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowra
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; }
 .toolbar input[type=date] { background: var(--bg); border: 1px solid var(--line2); color: var(--text); padding: 4px 6px; font: 12px var(--mono); border-radius: 2px; color-scheme: dark; }
 h4.label.pad { margin: 18px 0 0; padding: 0; font-weight: 500; }
+
+.chev { background: none; border: 1px solid var(--line2); width: 24px; height: 24px; border-radius: 2px; color: var(--amber); font: 16px/1 var(--mono); padding: 0; }
+.chev:hover { border-color: var(--amber); }
+tr.expand > td { background: #0c1015; padding: 10px 14px; white-space: normal; }
+.pa { max-width: 560px; }
