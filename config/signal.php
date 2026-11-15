@@ -6,6 +6,15 @@ return [
     // Path CA bundle kustom (opsional). Jika kosong dipakai storage/cacert.pem atau bawaan PHP.
     'ca_bundle' => env('BINANCE_CA_BUNDLE', ''),
 
+    // Portofolio read-only (opsional). Buat API key di Binance dengan HANYA izin "Enable Reading",
+    // batasi ke IP Anda, simpan di .env. Jangan pernah mengaktifkan Trading/Withdraw.
+    'account' => [
+        'key' => env('BINANCE_API_KEY', ''),
+        'secret' => env('BINANCE_API_SECRET', ''),
+        // Aplikasi ini tidak punya login: data akun hanya dilayani ke localhost kecuali diizinkan eksplisit.
+        'allow_remote' => (bool) env('BINANCE_ACCOUNT_ALLOW_REMOTE', false),
+    ],
+
     // Jumlah pair teratas (berdasarkan volume 24 jam USDT-M perpetual) dan batas likuiditas minimum
     'watchlist_size' => (int) env('SIGNAL_WATCHLIST', 100),
     'min_quote_volume' => (float) env('SIGNAL_MIN_VOLUME', 10_000_000),

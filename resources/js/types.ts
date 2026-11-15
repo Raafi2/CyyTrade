@@ -30,3 +30,21 @@ export interface SignalRow {
 }
 export interface HistoryResp { stats: { overall: Stat; open: number; buckets: Record<string, Stat> }; signals: SignalRow[] }
 export interface TrackResp { resolved: number; open: SignalRow[] }
+
+export interface PortPos {
+  symbol: string; side: 'LONG' | 'SHORT'; amt: number; entry: number; mark: number; pnl: number;
+  leverage: number; liq: number; margin_type: string; notional: number;
+}
+export interface PortResp {
+  configured: boolean;
+  wallet?: number; unrealized?: number; margin_balance?: number; available?: number; maint_margin?: number;
+  assets?: { asset: string; wallet: number; pnl: number }[];
+  positions?: PortPos[];
+  fetched_at?: number;
+}
+export interface IncomeRec { time: number; symbol: string; type: 'REALIZED_PNL' | 'COMMISSION' | 'FUNDING_FEE'; income: number }
+export interface IncomeResp {
+  configured: boolean; from?: number; to?: number;
+  totals?: { realized: number; commission: number; funding: number; net: number };
+  records?: IncomeRec[]; truncated?: boolean;
+}

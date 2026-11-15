@@ -156,6 +156,53 @@ class BinanceFuturesClient
         return $r;
     }
 
+    /** Apakah API key akun (read-only) sudah diatur di .env. */
+    public function accountConfigured(): bool
+    {
+        return (string) config('signal.account.key') !== '' && (string) config('signal.account.secret') !== '';
+    }
+
+    /**
+     * GET bertanda tangan (HMAC-SHA256) ke endpoint akun. Hanya untuk endpoint baca; kunci tidak pernah
+     * dikirim ke browser dan tidak ditulis ke log. Gunakan API key dengan izin "Enable Reading" SAJA.
+     *
+     * @return array<mixed>
+     */
+    public function signed(string $path, array $query = []): array
+    {
+        $key = (string) config('signal.account.key');
+        $secret = (string) config('signal.account.secret');
+        if ($key === '' || $secret === '') {
+            throw new RuntimeException('API key Binance belum diatur di .env.');
+        }
+        $this->assertNotBackedOff();
+        $query['recvWindow'] = 10_000;
+        $query['timestamp'] = $this->nowMs();
+        $qs = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $sig = hash_hmac('sha256', $qs, $secret);
+
+        try {
+            $r = Http::withOptions($this->httpOptions())->withHeaders(['X-MBX-APIKEY' => $key])
+                ->acceptJson()->timeout(15)->get($this->base().$path.'?'.$qs.'&signature='.$sig);
+        } catch (ConnectionException) {
+            throw new RuntimeException('Tidak dapat terhubung ke Binance untuk data akun.');
+        }
+        $this->noteStatus($r);
+
+        if (! $r->successful()) {
+            $code = (int) $r->json('code');
+            throw new RuntimeException(match (true) {
+                in_array($code, [-2014, -2015], true) || $r->status() === 401 => 'API key ditolak Binance. Periksa key/secret, izin "Enable Reading", dan whitelist IP.',
+                $code === -1021 => 'Jam komputer tidak sinkron dengan Binance. Sinkronkan jam sistem.',
+                $code === -1022 => 'Tanda tangan ditolak. Periksa BINANCE_API_SECRET.',
+                $r->status() === 404 => 'Endpoint akun tidak tersedia ('.$path.').',
+                default => 'Binance menolak permintaan akun (HTTP '.$r->status().', kode '.$code.').',
+            });
+        }
+
+        return $r->json() ?? [];
+    }
+
     private function ok(mixed $r): bool
     {
         return $r instanceof Response && $r->successful();

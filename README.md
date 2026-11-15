@@ -66,6 +66,27 @@ verdict (searah/netral/berlawanan) dan perkiraan waktu. Boleh diubah manual. Set
 - Posisi disimpan di `localStorage` browser. Alert hanya jalan selama tab terbuka; tidak ada proses latar belakang.
 - Sinyal scalp tidak masuk Riwayat/statistik. Sinyal dengan SL terlalu rapat (fee > 0,25R) ditolak otomatis.
 
+## Tab Portofolio (read-only, opsional)
+
+Membaca akun Binance Futures Anda langsung dari Binance: saldo, posisi terbuka (PnL live dari WebSocket), dan total
+profit pada rentang tanggal (hari ini, 7/30 hari, bulan ini, atau kustom, maksimal 92 hari) yang dipecah per hari dan per pair.
+Profit bersih = PnL terealisasi + fee + funding; transfer tidak dihitung. Kotak pencarian memfilter posisi dan transaksi per pair.
+
+Pengaturan keamanan:
+
+1. Buat API key baru di Binance dengan **hanya "Enable Reading"**. Jangan aktifkan trading, withdraw, atau transfer.
+2. Batasi key ke IP publik Anda (trusted IPs).
+3. Isi `BINANCE_API_KEY` dan `BINANCE_API_SECRET` di `.env` (jangan di-commit, jangan ditempel di chat), lalu `php artisan config:clear`.
+4. Aplikasi tidak punya login, jadi data akun hanya dilayani ke `127.0.0.1`/`::1`. Jangan buka aplikasi ke jaringan.
+   `BINANCE_ACCOUNT_ALLOW_REMOTE=true` mematikan pembatasan ini dan tidak disarankan.
+
+Kunci hanya dipakai di server (tanda tangan HMAC-SHA256), tidak pernah dikirim ke browser. Data profit memakai endpoint
+`income` Binance, yang hanya menyimpan sekitar 3 bulan terakhir.
+
+## Pencarian
+
+Watchlist (tab Pasar), tab Riwayat, dan tab Portofolio punya kotak pencarian per pair.
+
 ## Hasil sinyal (tab Riwayat)
 
 Sinyal terbuka diselesaikan memakai **candle 1m nyata** sejak sinyal dibuka (dicek otomatis saat web dibuka dan
@@ -88,6 +109,7 @@ tiap menit). Aturan, dari yang paling konservatif:
 | `SIGNAL_FEE_PCT` | 0.10 | fee round-trip (%) |
 | `SIGNAL_SLIPPAGE_PCT` | 0.04 | perkiraan slippage (%) |
 | `SIGNAL_SCALP_MAX_COST_R` | 0.25 | batas fee+slippage (dalam R) untuk sinyal scalp |
+| `BINANCE_API_KEY` / `BINANCE_API_SECRET` | (kosong) | API key read-only untuk tab Portofolio |
 | `BINANCE_FAPI_BASE` | https://fapi.binance.com | ganti jika endpoint REST diblokir |
 | `VITE_BINANCE_WS` | wss://fstream.binance.com | ganti jika WebSocket diblokir |
 | `BINANCE_CA_BUNDLE` | (kosong) | path CA bundle jika ada error SSL |

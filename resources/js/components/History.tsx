@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getHistory } from '../api';
 import { base, fmtPrice } from '../format';
 import type { HistoryResp, Stat } from '../types';
@@ -20,6 +20,11 @@ function StatBox({ label, s }: { label: string; s: Stat }) {
 export default function History() {
   const [d, setD] = useState<HistoryResp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const rows = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    return (d?.signals ?? []).filter((s) => !n || s.symbol.toLowerCase().includes(n));
+  }, [d, q]);
 
   useEffect(() => {
     getHistory().then(setD).catch((e: Error) => setErr(e.message));
@@ -40,13 +45,14 @@ export default function History() {
         satu candle tidak pasti, dipakai asumsi terburuk. Angka R sudah bersih: dikurangi fee, slippage, dan funding riil.
         Sinyal hanya dicatat dan diselesaikan saat web ini dibuka, jadi ini bukan eksekusi order sungguhan.
       </p>
+      <div className="toolbar"><input className="search" placeholder="Cari pair, mis. BTC" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="table-wrap">
         <table className="mono">
           <thead>
             <tr><th>Waktu</th><th>Pair</th><th>Arah</th><th>Conf</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>Status</th><th>R</th></tr>
           </thead>
           <tbody>
-            {d.signals.map((s) => (
+            {rows.map((s) => (
               <tr key={s.id}>
                 <td>{new Date(s.opened_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}</td>
                 <td>{base(s.symbol)}</td>
@@ -62,7 +68,7 @@ export default function History() {
                 </td>
               </tr>
             ))}
-            {!d.signals.length && <tr><td colSpan={10} className="empty">Belum ada sinyal tercatat. Buka tab Pasar dulu.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="empty">{q ? 'Tidak ada sinyal yang cocok.' : 'Belum ada sinyal tercatat. Buka tab Pasar dulu.'}</td></tr>}
           </tbody>
         </table>
       </div>

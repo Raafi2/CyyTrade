@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { base, fmtPct, fmtPrice, sideWord } from '../format';
 import type { Tick } from '../live';
 import { isErr, type Entry, type SymbolRow } from '../types';
@@ -25,9 +25,12 @@ export default function Watchlist({ rows, results, ticks, selected, onSelect, on
     return [...rows].sort((a, b) => rank(b.symbol) - rank(a.symbol));
   }, [rows, results]);
 
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const found = needle ? sorted.filter((r) => r.symbol.toLowerCase().includes(needle)) : sorted;
   const shown = onlyActive
-    ? sorted.filter((r) => { const e = results[r.symbol]; return e && !isErr(e) && e.side !== 'NEUTRAL'; })
-    : sorted;
+    ? found.filter((r) => { const e = results[r.symbol]; return e && !isErr(e) && e.side !== 'NEUTRAL'; })
+    : found;
 
   return (
     <section className="panel watch">
@@ -38,6 +41,7 @@ export default function Watchlist({ rows, results, ticks, selected, onSelect, on
           hanya sinyal aktif
         </label>
       </div>
+      <div className="searchbar"><input className="search" placeholder={`Cari koin (${rows.length})`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="thead">
         <span>Pair</span><span>Arah</span><span className="r">Conf</span><span className="r">24j</span>
       </div>
@@ -73,7 +77,7 @@ export default function Watchlist({ rows, results, ticks, selected, onSelect, on
             </button>
           );
         })}
-        {!shown.length && <div className="empty">{rows.length ? 'Belum ada sinyal aktif.' : 'Memuat daftar pair…'}</div>}
+        {!shown.length && <div className="empty">{!rows.length ? 'Memuat daftar pair…' : needle ? 'Tidak ada koin yang cocok.' : 'Belum ada sinyal aktif.'}</div>}
       </div>
     </section>
   );

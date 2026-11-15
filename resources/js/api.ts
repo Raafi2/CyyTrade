@@ -1,4 +1,4 @@
-import type { Analysis, CandleResp, HistoryResp, SymbolRow, TrackResp } from './types';
+import type { Analysis, CandleResp, HistoryResp, IncomeResp, PortResp, SymbolRow, TrackResp } from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -17,3 +17,5 @@ export const getAnalysis = (s: string, mode: 'swing' | 'scalp' = 'swing') =>
 export const getCandles = (s: string, tf: string) => get<CandleResp>(`/api/candles/${s}?tf=${tf}`);
 export const getHistory = () => get<HistoryResp>('/api/history');
 export const getTrack = () => get<TrackResp>('/api/track');
+export const getPortfolio = () => get<PortResp>('/api/portfolio');
+export const getIncome = (from: number, to: number) => get<IncomeResp>(`/api/portfolio/income?from=${from}&to=${to}`);

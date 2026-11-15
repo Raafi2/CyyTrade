@@ -130,3 +130,11 @@ td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowra
 @media (max-width: 1000px) { .grid.scalp { grid-template-columns: 1fr; height: auto; } .grid.scalp .chart { min-height: 360px; } }
 .advice { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--line2); font-size: 12px; }
 .advice.with { border-color: var(--long); } .advice.against { border-color: var(--short); color: #e8a09b; } .advice.neutral { border-color: var(--amber); }
+
+/* ---- Pencarian & portofolio ---- */
+.search { background: var(--bg); border: 1px solid var(--line2); color: var(--text); padding: 5px 8px; font: 12px var(--mono); border-radius: 2px; min-width: 180px; }
+.search:focus, .toolbar input[type=date]:focus { outline: 0; border-color: var(--amber); }
+.searchbar { padding: 6px 10px; border-bottom: 1px solid var(--line); } .searchbar .search { width: 100%; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; }
+.toolbar input[type=date] { background: var(--bg); border: 1px solid var(--line2); color: var(--text); padding: 4px 6px; font: 12px var(--mono); border-radius: 2px; color-scheme: dark; }
+h4.label.pad { margin: 18px 0 0; padding: 0; font-weight: 500; }
