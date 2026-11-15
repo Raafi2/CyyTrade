@@ -128,3 +128,5 @@ td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowra
 .log > div { padding: 2px 0; } .log .good { color: var(--long); } .log .bad { color: var(--short); } .log .warn { color: var(--amber); }
 .row { display: flex; gap: 8px; margin-top: 8px; }
 @media (max-width: 1000px) { .grid.scalp { grid-template-columns: 1fr; height: auto; } .grid.scalp .chart { min-height: 360px; } }
+.advice { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--line2); font-size: 12px; }
+.advice.with { border-color: var(--long); } .advice.against { border-color: var(--short); color: #e8a09b; } .advice.neutral { border-color: var(--amber); }
