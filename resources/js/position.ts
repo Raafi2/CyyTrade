@@ -68,7 +68,8 @@ export function levels(p: PositionInput): Levels {
 export function validate(p: PositionInput): string | null {
     const d = dir(p.side);
     if (!(p.entry > 0 && p.margin > 0 && p.leverage >= 1)) return 'Entry, modal, dan leverage harus lebih dari 0.';
-    if (!(d * (p.entry - p.sl) > 0)) return p.side === 'LONG' ? 'SL harus di bawah entry untuk LONG.' : 'SL harus di atas entry untuk SHORT.';
+    // SL boleh di atas entry (LONG) bila untuk mengunci profit, asal tetap di sisi rugi dari TP.
+    if (!(d * (p.tp - p.sl) > 0)) return p.side === 'LONG' ? 'SL harus di bawah TP untuk LONG.' : 'SL harus di atas TP untuk SHORT.';
     if (!(d * (p.tp - p.entry) > 0)) return p.side === 'LONG' ? 'TP harus di atas entry untuk LONG.' : 'TP harus di bawah entry untuk SHORT.';
     if (levels(p).slBeyondLiq) return 'SL berada di luar harga likuidasi. Turunkan leverage atau rapatkan SL.';
     return null;
