@@ -42,9 +42,9 @@ export interface PortResp {
   positions?: PortPos[];
   fetched_at?: number;
 }
-export interface IncomeRec { time: number; symbol: string; type: 'REALIZED_PNL' | 'COMMISSION' | 'FUNDING_FEE'; income: number }
+export interface IncomeRec { time: number; symbol: string; type: 'REALIZED_PNL' | 'COMMISSION' | 'FUNDING_FEE' | 'TRANSFER'; income: number }
 export interface IncomeResp {
   configured: boolean; from?: number; to?: number;
-  totals?: { realized: number; commission: number; funding: number; net: number };
-  records?: IncomeRec[]; truncated?: boolean;
+  totals?: { realized: number; commission: number; funding: number; transfer: number; net: number };
+  records?: IncomeRec[]; truncated?: boolean; earliest?: number | null; api_limit_days?: number; sync_error?: string | null;
 }

@@ -69,7 +69,7 @@ verdict (searah/netral/berlawanan) dan perkiraan waktu. Boleh diubah manual. Set
 ## Tab Portofolio (read-only, opsional)
 
 Membaca akun Binance Futures Anda langsung dari Binance: saldo, posisi terbuka (PnL live dari WebSocket), dan total
-profit pada rentang tanggal (hari ini, 7/30 hari, bulan ini, atau kustom, maksimal 92 hari) yang dipecah per hari dan per pair.
+profit pada rentang tanggal (hari ini, 7/30 hari, bulan ini, **semua**, atau kustom), lengkap dengan persen terhadap saldo awal periode yang dipecah per hari dan per pair.
 Profit bersih = PnL terealisasi + fee + funding; transfer tidak dihitung. Kotak pencarian memfilter posisi dan transaksi per pair.
 
 Pengaturan keamanan:
@@ -80,8 +80,11 @@ Pengaturan keamanan:
 4. Aplikasi tidak punya login, jadi data akun hanya dilayani ke `127.0.0.1`/`::1`. Jangan buka aplikasi ke jaringan.
    `BINANCE_ACCOUNT_ALLOW_REMOTE=true` mematikan pembatasan ini dan tidak disarankan.
 
-Kunci hanya dipakai di server (tanda tangan HMAC-SHA256), tidak pernah dikirim ke browser. Data profit memakai endpoint
-`income` Binance, yang hanya menyimpan sekitar 3 bulan terakhir.
+Binance hanya menyimpan sekitar 90 hari income. Karena itu setiap tab dibuka, data baru disalin ke tabel lokal `income_records`
+(SQLite, jalankan `php artisan migrate`), sehingga "Semua" makin panjang seiring waktu. Buka tab ini minimal sekali tiap 2 bulan
+agar tidak ada celah. Persen dihitung dari saldo awal periode (saldo sekarang dikurangi profit dan transfer sejak awal periode), perkiraan.
+
+Kunci hanya dipakai di server (tanda tangan HMAC-SHA256), tidak pernah dikirim ke browser. 
 
 ## Pencarian
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\IncomeRecord;
 use App\Services\Binance\BinanceFuturesClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,8 +13,10 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 /** Portofolio akun Binance Futures, hanya baca (API key read-only). */
 class PortfolioController extends Controller
 {
-    private const INCOME_TYPES = ['REALIZED_PNL', 'COMMISSION', 'FUNDING_FEE'];
-    private const MAX_DAYS = 92;
+    private const INCOME_TYPES = ['REALIZED_PNL', 'COMMISSION', 'FUNDING_FEE', 'TRANSFER'];
+    // Binance hanya menyimpan sekitar 3 bulan income; sisanya dikumpulkan di database lokal tiap aplikasi dibuka.
+    private const API_DAYS = 90;
+    private const MAX_ROWS = 30000;
 
     public function __construct(private BinanceFuturesClient $bn) {}
 
@@ -70,7 +73,10 @@ class PortfolioController extends Controller
         });
     }
 
-    /** Income (PnL terealisasi, fee, funding) pada rentang waktu. from/to dalam ms epoch. */
+    /**
+     * Income pada rentang waktu (ms epoch). Data baru disinkronkan dari Binance ke database lokal,
+     * lalu dibaca dari sana sehingga riwayat tidak terbatas 3 bulan setelah aplikasi dipakai beberapa kali.
+     */
     public function income(Request $r): JsonResponse
     {
         return $this->guard($r, function () use ($r) {
@@ -81,43 +87,78 @@ class PortfolioController extends Controller
             $from = (int) $r->query('from');
             $to = min((int) $r->query('to'), $now);
             abort_unless($from > 0 && $to > $from, 422, 'Rentang tanggal tidak valid.');
-            abort_if($to - $from > self::MAX_DAYS * 86_400_000, 422, 'Rentang maksimal '.self::MAX_DAYS.' hari.');
 
-            $records = Cache::remember("acct:income:$from:$to", 30, fn () => $this->fetchIncome($from, $to));
+            $syncError = null;
+            try {
+                $this->syncIncome($now);
+            } catch (RuntimeException $e) {
+                // Tetap tampilkan data yang sudah tersimpan bila Binance gagal dihubungi.
+                $syncError = $e->getMessage();
+            }
 
-            $tot = ['REALIZED_PNL' => 0.0, 'COMMISSION' => 0.0, 'FUNDING_FEE' => 0.0];
+            $rows = IncomeRecord::where('time', '>=', $from)->where('time', '<=', $to)->orderBy('time')
+                ->limit(self::MAX_ROWS + 1)->get(['time', 'symbol', 'type', 'income']);
+            $truncated = $rows->count() > self::MAX_ROWS;
+            $records = $rows->take(self::MAX_ROWS)->map(fn ($x) => [
+                'time' => $x->time, 'symbol' => $x->symbol, 'type' => $x->type, 'income' => $x->income,
+            ])->values()->all();
+
+            $tot = ['REALIZED_PNL' => 0.0, 'COMMISSION' => 0.0, 'FUNDING_FEE' => 0.0, 'TRANSFER' => 0.0];
             foreach ($records as $x) {
                 $tot[$x['type']] += $x['income'];
             }
+            $net = $tot['REALIZED_PNL'] + $tot['COMMISSION'] + $tot['FUNDING_FEE'];
 
             return [
                 'configured' => true,
                 'from' => $from, 'to' => $to,
+                'earliest' => IncomeRecord::min('time'),
+                'api_limit_days' => self::API_DAYS,
                 'totals' => [
                     'realized' => round($tot['REALIZED_PNL'], 4),
                     'commission' => round($tot['COMMISSION'], 4),
                     'funding' => round($tot['FUNDING_FEE'], 4),
-                    'net' => round(array_sum($tot), 4),
+                    'transfer' => round($tot['TRANSFER'], 4),
+                    'net' => round($net, 4),
                 ],
                 'records' => $records,
-                'truncated' => count($records) >= 8000,
+                'truncated' => $truncated,
+                'sync_error' => $syncError,
             ];
         });
     }
 
-    /** @return list<array{time:int,symbol:string,type:string,income:float}> */
-    private function fetchIncome(int $from, int $to): array
+    /** Ambil income baru dari Binance (maksimal tiap 30 detik) dan simpan ke database lokal. */
+    private function syncIncome(int $now): void
     {
-        $out = [];
-        $cursor = $from;
-        for ($page = 0; $page < 8; $page++) {
-            $rows = $this->bn->signed('/fapi/v1/income', ['startTime' => $cursor, 'endTime' => $to, 'limit' => 1000]);
+        if (Cache::has('acct:income:synced')) {
+            return;
+        }
+        $last = IncomeRecord::max('time');
+        $floor = $now - self::API_DAYS * 86_400_000;
+        // Tumpang tindih 2 hari supaya catatan yang terlambat muncul di Binance tetap tertangkap.
+        $start = $last === null ? $floor : max($floor, (int) $last - 2 * 86_400_000);
+
+        $cursor = $start;
+        for ($page = 0; $page < 30; $page++) {
+            $rows = $this->bn->signed('/fapi/v1/income', ['startTime' => $cursor, 'endTime' => $now, 'limit' => 1000]);
+            $batch = [];
             foreach ($rows as $x) {
-                // Hanya aset stablecoin quote; transfer dan jenis lain bukan profit trading.
+                // Hanya aset stablecoin quote; jenis lain bukan profit trading.
                 if (! in_array($x['incomeType'] ?? '', self::INCOME_TYPES, true) || ! in_array($x['asset'] ?? '', ['USDT', 'USDC', 'BUSD', 'FDUSD'], true)) {
                     continue;
                 }
-                $out[] = ['time' => (int) $x['time'], 'symbol' => (string) ($x['symbol'] ?? ''), 'type' => $x['incomeType'], 'income' => (float) $x['income']];
+                $time = (int) $x['time'];
+                $symbol = (string) ($x['symbol'] ?? '');
+                $income = (float) $x['income'];
+                $batch[] = [
+                    'type' => $x['incomeType'],
+                    'tran_id' => (string) (($x['tranId'] ?? '') !== '' ? $x['tranId'] : md5("$time|$symbol|$income")),
+                    'symbol' => $symbol, 'income' => $income, 'time' => $time,
+                ];
+            }
+            foreach (array_chunk($batch, 200) as $chunk) {
+                IncomeRecord::upsert($chunk, ['type', 'tran_id'], ['symbol', 'income', 'time']);
             }
             if (count($rows) < 1000) {
                 break;
@@ -125,8 +166,7 @@ class PortfolioController extends Controller
             $cursor = (int) end($rows)['time'] + 1;
             usleep(150_000);
         }
-
-        return $out;
+        Cache::put('acct:income:synced', true, 30);
     }
 
     private function versioned(string $path, string $fallback): array

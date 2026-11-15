@@ -11,9 +11,11 @@ const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.ge
 const startOf = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0).getTime(); };
 const endOf = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999).getTime(); };
 
-type Preset = 'hari' | '7' | '30' | 'bulan' | 'kustom';
+type Preset = 'hari' | '7' | '30' | 'bulan' | 'semua' | 'kustom';
 
-function presetRange(p: Exclude<Preset, 'kustom'>): [string, string] {
+const pct = (v: number | null) => (v === null || !isFinite(v) ? '–' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`);
+
+function presetRange(p: Exclude<Preset, 'kustom' | 'semua'>): [string, string] {
   const now = new Date();
   const today = ymd(now);
   if (p === 'hari') return [today, today];
@@ -43,13 +45,14 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
 
   const [from, to] = range;
   const loadInc = useCallback(() => {
-    if (!from || !to || startOf(from) > endOf(to)) return;
+    if (preset !== 'semua' && (!from || !to || startOf(from) > endOf(to))) return;
     setLoadingInc(true);
-    getIncome(startOf(from), endOf(to))
+    // Selalu sampai sekarang: transaksi setelah rentang dipakai untuk menghitung saldo awal periode.
+    getIncome(preset === 'semua' ? 1 : startOf(from), Date.now())
       .then((d) => { setInc(d); setIncErr(null); })
       .catch((e: Error) => setIncErr(e.message))
       .finally(() => setLoadingInc(false));
-  }, [from, to]);
+  }, [from, to, preset]);
   useEffect(() => { if (port?.configured) loadInc(); }, [port?.configured, loadInc]);
 
   const syms = useMemo(() => (port?.positions ?? []).map((p) => p.symbol), [port]);
@@ -64,29 +67,55 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
     return { ...p, px, pnl };
   }), [port, live.ticks, needle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const records = useMemo(() => (inc?.records ?? []).filter((r) => match(r.symbol)), [inc, needle]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allRecords = inc?.records ?? [];
+  const periodStart = preset === 'semua' ? 0 : startOf(from);
+  const periodEnd = preset === 'semua' ? Date.now() : endOf(to);
+  const inPeriod = useMemo(() => allRecords.filter((r) => r.time >= periodStart && r.time <= periodEnd), [allRecords, periodStart, periodEnd]);
+  const records = useMemo(() => inPeriod.filter((r) => r.type !== 'TRANSFER' && match(r.symbol)), [inPeriod, needle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Saldo wallet di awal periode = saldo sekarang dikurangi semua profit dan transfer sejak awal periode.
+  // Perkiraan: transaksi dalam aset non-stablecoin (mis. fee BNB) tidak ikut.
+  const startBal = useMemo(() => {
+    if (!port || port.wallet === undefined || !inc) return null;
+    const since = allRecords.filter((r) => r.time >= periodStart).reduce((a, r) => a + r.income, 0);
+    const v = port.wallet - since;
+    return v > 0 ? v : null;
+  }, [port, inc, allRecords, periodStart]);
 
   const agg = useMemo(() => {
-    const byDay = new Map<string, { realized: number; fee: number; funding: number }>();
+    const byDay = new Map<string, { realized: number; fee: number; funding: number; transfer: number }>();
     const bySym = new Map<string, { realized: number; fee: number; funding: number; n: number }>();
     let win = 0; let lose = 0; let realized = 0; let fee = 0; let funding = 0;
-    for (const r of records) {
+    for (const r of inPeriod) {
       const day = ymd(new Date(r.time));
-      const d = byDay.get(day) ?? { realized: 0, fee: 0, funding: 0 };
+      const d = byDay.get(day) ?? { realized: 0, fee: 0, funding: 0, transfer: 0 };
+      if (r.type === 'TRANSFER') { d.transfer += r.income; byDay.set(day, d); continue; }
+      if (!match(r.symbol)) { byDay.set(day, d); continue; }
       const s = bySym.get(r.symbol) ?? { realized: 0, fee: 0, funding: 0, n: 0 };
       if (r.type === 'REALIZED_PNL') { d.realized += r.income; s.realized += r.income; s.n++; realized += r.income; if (r.income > 0) win++; else if (r.income < 0) lose++; }
       else if (r.type === 'COMMISSION') { d.fee += r.income; s.fee += r.income; fee += r.income; }
       else { d.funding += r.income; s.funding += r.income; funding += r.income; }
       byDay.set(day, d); bySym.set(r.symbol, s);
     }
-    const days = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    // Persen harian = profit hari itu / saldo di awal hari (dari saldo awal periode + akumulasi sebelumnya).
+    const asc = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    // Saldo awal hari dihitung dari data tanpa filter pencarian agar persennya benar.
+    const fullDay = new Map<string, number>();
+    for (const r of inPeriod) { const k = ymd(new Date(r.time)); fullDay.set(k, (fullDay.get(k) ?? 0) + r.income); }
+    let bal = startBal;
+    const days = asc.map(([k, v]) => {
+      const net = v.realized + v.fee + v.funding;
+      const p = bal !== null && bal > 0 ? (net / bal) * 100 : null;
+      if (bal !== null) bal += fullDay.get(k) ?? 0;
+      return [k, v, p] as const;
+    }).reverse();
     const syms2 = [...bySym.entries()].sort((a, b) => (b[1].realized + b[1].fee + b[1].funding) - (a[1].realized + a[1].fee + a[1].funding));
     return { days, syms: syms2, win, lose, realized, fee, funding, net: realized + fee + funding };
-  }, [records]);
+  }, [inPeriod, startBal, needle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickPreset = (p: Preset) => {
     setPreset(p);
-    if (p !== 'kustom') setRange(presetRange(p));
+    if (p !== 'kustom' && p !== 'semua') setRange(presetRange(p));
   };
 
   if (portErr && !port) return <div className="banner">Portofolio gagal dimuat: {portErr}</div>;
@@ -115,7 +144,8 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
       {portErr && <div className="banner">Pembaruan portofolio gagal: {portErr}</div>}
       <div className="stats">
         <div className="stat"><span className="label">Saldo wallet</span><b className="mono">{fmtUsd(port.wallet ?? 0)}</b></div>
-        <div className="stat"><span className="label">PnL belum terealisasi {needle ? '(terfilter)' : ''}</span><b className={`mono ${cls(unreal)}`}>{sgn(unreal)}</b></div>
+        <div className="stat"><span className="label">PnL belum terealisasi {needle ? '(terfilter)' : ''}</span><b className={`mono ${cls(unreal)}`}>{sgn(unreal)}</b>
+          <span className={`mono ${cls(unreal)}`}>{pct(port.wallet ? (unreal / port.wallet) * 100 : null)} dari saldo wallet</span></div>
         <div className="stat"><span className="label">Saldo margin</span><b className="mono">{fmtUsd(port.margin_balance ?? 0)}</b></div>
         <div className="stat"><span className="label">Tersedia</span><b className="mono">{fmtUsd(port.available ?? 0)}</b></div>
       </div>
@@ -123,31 +153,33 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
       <div className="toolbar">
         <input className="search" placeholder="Cari pair, mis. BTC" value={q} onChange={(e) => setQ(e.target.value)} />
         <div className="seg">
-          {([['hari', 'Hari ini'], ['7', '7 hari'], ['30', '30 hari'], ['bulan', 'Bulan ini'], ['kustom', 'Kustom']] as [Preset, string][]).map(([k, l]) => (
+          {([['hari', 'Hari ini'], ['7', '7 hari'], ['30', '30 hari'], ['bulan', 'Bulan ini'], ['semua', 'Semua'], ['kustom', 'Kustom']] as [Preset, string][]).map(([k, l]) => (
             <button key={k} className={preset === k ? 'on' : ''} onClick={() => pickPreset(k)}>{l}</button>
           ))}
         </div>
-        <input type="date" value={from} max={to} onChange={(e) => { setPreset('kustom'); setRange([e.target.value, to]); }} />
+        <input type="date" disabled={preset === 'semua'} value={from} max={to} onChange={(e) => { setPreset('kustom'); setRange([e.target.value, to]); }} />
         <span className="dim">s/d</span>
-        <input type="date" value={to} min={from} max={ymd(new Date())} onChange={(e) => { setPreset('kustom'); setRange([from, e.target.value]); }} />
+        <input type="date" disabled={preset === 'semua'} value={to} min={from} max={ymd(new Date())} onChange={(e) => { setPreset('kustom'); setRange([from, e.target.value]); }} />
         <button className="btn" onClick={loadInc} disabled={loadingInc}>{loadingInc ? 'Memuat…' : 'Muat'}</button>
       </div>
 
       <div className="stats">
         <div className="stat"><span className="label">Total profit bersih</span><b className={`mono ${cls(agg.net)}`}>{sgn(agg.net)}</b>
-          <span className="mono dim">{from} s/d {to}{needle ? ` · "${q}"` : ''}</span></div>
+          <span className={`mono ${cls(agg.net)}`}>{pct(startBal ? (agg.net / startBal) * 100 : null)} dari saldo awal{startBal ? ` (${fmtUsd(startBal)})` : ''}</span>
+          <span className="mono dim">{preset === 'semua' ? 'semua data tersimpan' : `${from} s/d ${to}`}{needle ? ` · "${q}"` : ''}</span></div>
         <div className="stat"><span className="label">PnL terealisasi</span><b className={`mono ${cls(agg.realized)}`}>{sgn(agg.realized)}</b>
           <span className="mono dim">{agg.win} untung · {agg.lose} rugi</span></div>
         <div className="stat"><span className="label">Fee</span><b className={`mono ${cls(agg.fee)}`}>{sgn(agg.fee)}</b></div>
         <div className="stat"><span className="label">Funding</span><b className={`mono ${cls(agg.funding)}`}>{sgn(agg.funding)}</b></div>
       </div>
       {incErr && <div className="banner">Data profit gagal dimuat: {incErr}</div>}
+      {inc?.sync_error && <div className="banner">Sinkron dari Binance gagal ({inc.sync_error}). Menampilkan data yang sudah tersimpan.</div>}
       {inc?.truncated && <div className="banner">Data sangat banyak dan dipotong. Persempit rentang tanggal.</div>}
 
       <h4 className="pad label">Posisi terbuka ({positions.length})</h4>
       <div className="table-wrap">
         <table className="mono">
-          <thead><tr><th>Pair</th><th>Arah</th><th>Jumlah</th><th>Entry</th><th>Harga</th><th>Likuidasi</th><th>Lev</th><th>PnL</th></tr></thead>
+          <thead><tr><th>Pair</th><th>Arah</th><th>Jumlah</th><th>Entry</th><th>Harga</th><th>Likuidasi</th><th>Lev</th><th>PnL</th><th>ROI</th></tr></thead>
           <tbody>
             {positions.map((p) => (
               <tr key={p.symbol}>
@@ -157,9 +189,10 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
                 <td>{p.liq > 0 ? fmtPrice(p.liq) : '–'}</td>
                 <td>{p.leverage}x <i className="dim">{p.margin_type}</i></td>
                 <td className={cls(p.pnl)}>{sgn(p.pnl)}</td>
+                <td className={cls(p.pnl)}>{pct(p.leverage > 0 && p.notional > 0 ? (p.pnl / (p.notional / p.leverage)) * 100 : null)}</td>
               </tr>
             ))}
-            {!positions.length && <tr><td colSpan={8} className="empty">{needle ? 'Tidak ada posisi yang cocok.' : 'Tidak ada posisi terbuka.'}</td></tr>}
+            {!positions.length && <tr><td colSpan={9} className="empty">{needle ? 'Tidak ada posisi yang cocok.' : 'Tidak ada posisi terbuka.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -167,13 +200,13 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
       <h4 className="pad label">Per hari</h4>
       <div className="table-wrap">
         <table className="mono">
-          <thead><tr><th>Tanggal</th><th>Terealisasi</th><th>Fee</th><th>Funding</th><th>Bersih</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Terealisasi</th><th>Fee</th><th>Funding</th><th>Bersih</th><th>%</th></tr></thead>
           <tbody>
-            {agg.days.map(([d, v]) => {
+            {agg.days.map(([d, v, p]) => {
               const net = v.realized + v.fee + v.funding;
-              return <tr key={d}><td>{d}</td><td className={cls(v.realized)}>{sgn(v.realized)}</td><td className={cls(v.fee)}>{sgn(v.fee)}</td><td className={cls(v.funding)}>{sgn(v.funding)}</td><td className={cls(net)}>{sgn(net)}</td></tr>;
+              return <tr key={d}><td>{d}</td><td className={cls(v.realized)}>{sgn(v.realized)}</td><td className={cls(v.fee)}>{sgn(v.fee)}</td><td className={cls(v.funding)}>{sgn(v.funding)}</td><td className={cls(net)}>{sgn(net)}</td><td className={cls(net)}>{pct(p)}</td></tr>;
             })}
-            {!agg.days.length && <tr><td colSpan={5} className="empty">{loadingInc ? 'Memuat…' : 'Tidak ada transaksi pada rentang ini.'}</td></tr>}
+            {!agg.days.length && <tr><td colSpan={6} className="empty">{loadingInc ? 'Memuat…' : 'Tidak ada transaksi pada rentang ini.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -191,7 +224,7 @@ export default function Portfolio({ live }: { live: LiveSnapshot }) {
           </tbody>
         </table>
       </div>
-      <p className="fine pad">Data langsung dari akun Binance (income: PnL terealisasi, fee, funding). Transfer/deposit tidak dihitung sebagai profit. Hanya baca: aplikasi tidak bisa membuka atau menutup posisi.</p>
+      <p className="fine pad">Data langsung dari akun Binance (income: PnL terealisasi, fee, funding). Transfer/deposit tidak dihitung sebagai profit, tapi dipakai untuk menghitung saldo awal. Persen adalah perkiraan dari saldo awal periode. Binance hanya menyimpan ±{inc?.api_limit_days ?? 90} hari; aplikasi menyimpan salinan lokal tiap dibuka{inc?.earliest ? ` (data tersimpan sejak ${new Date(inc.earliest).toLocaleDateString('id-ID')})` : ''}, jadi "Semua" bertambah panjang seiring waktu. Buka tab ini minimal sekali tiap 2 bulan agar tidak ada celah. Hanya baca: aplikasi tidak bisa membuka atau menutup posisi.</p>
     </div>
   );
 }
