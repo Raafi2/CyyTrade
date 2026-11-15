@@ -85,7 +85,7 @@ export default function Scalping({ live, symbols }: Props) {
   const [fillNote, setFillNote] = useState<string | null>(null);
   const [filling, setFilling] = useState(false);
   const [manual, setManual] = useState(false); // SL/TP diubah tangan: berhenti menimpa otomatis
-  const [sug, setSug] = useState<{ a: Analysis; closes: number[] } | null>(null);
+  const [sug, setSug] = useState<{ symbol: string; a: Analysis; closes: number[] } | null>(null);
 
   const posRef = useRef(positions);
   posRef.current = positions;
@@ -193,24 +193,25 @@ export default function Scalping({ live, symbols }: Props) {
   // SL/TP otomatis: tiap pair/arah/entry berubah, analisis scalp nyata diambil dan SL/TP disarankan.
   useEffect(() => { setManual(false); }, [symbol, side]);
   const entryNum = parseFloat(entry);
+  const hasEntry = entryNum > 0;
   useEffect(() => {
-    if (!(entryNum > 0)) { setSug(null); setFillNote(null); return undefined; }
+    if (!hasEntry) { setSug(null); setFillNote(null); return undefined; }
     let dead = false;
     setFilling(true);
     const t = window.setTimeout(() => {
       Promise.all([getAnalysis(symbol, 'scalp'), getCandles(symbol, '1m')])
-        .then(([a, c]) => { if (!dead) { setSug({ a, closes: c.candles.map((x) => x.close) }); setFillNote(null); } })
+        .then(([a, c]) => { if (!dead) { setSug({ symbol, a, closes: c.candles.map((x) => x.close) }); setFillNote(null); } })
         .catch((err: Error) => { if (!dead) setFillNote(`Gagal mengambil analisis: ${err.message}`); })
         .finally(() => { if (!dead) setFilling(false); });
     }, 600);
     return () => { dead = true; window.clearTimeout(t); };
-  }, [symbol, side, entryNum]);
+  }, [symbol, hasEntry]);
 
   // Saran level dari analisis + leverage: SL tidak boleh melewati batas aman likuidasi.
   const advice = useMemo(() => {
     const e = entryNum;
     const L = parseFloat(lev) || 0;
-    if (!sug || !(e > 0) || L < 1) return null;
+    if (!sug || sug.symbol !== symbol || !(e > 0) || L < 1) return null;
     const a = sug.a;
     const d = side === 'LONG' ? 1 : -1;
     let slD: number; let tpD: number; let src: string;
@@ -243,6 +244,13 @@ export default function Scalping({ live, symbols }: Props) {
 
   const start = async () => {
     if (problem) { setMsg(problem); return; }
+    const px = live.ticks[symbol]?.price ?? nowPrice;
+    if (!px) { setMsg('Harga live belum tersedia. Tunggu sebentar lalu coba lagi.'); return; }
+    // Posisi dianggap sudah terisi di harga entry. Entry yang jauh dari pasar membuat SL/TP salah terpicu.
+    if (Math.abs(px - input.entry) / px > 0.003) {
+      setMsg(`Entry ${fmtPrice(input.entry)} berjarak lebih dari 0,3% dari harga sekarang (${fmtPrice(px)}). Pantau dimulai hanya untuk posisi yang sudah terisi: klik "Harga sekarang" atau isi entry sesuai fill Anda.`);
+      return;
+    }
     const perm = await primeAlerts();
     const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const now = Date.now();
@@ -250,7 +258,7 @@ export default function Scalping({ live, symbols }: Props) {
       id, input, openedAt: now, checkedAt: Math.floor(now / 60_000) * 60 + 60, status: 'open',
       log: [{ t: now, m: `Mulai dipantau: ${input.side} ${base(symbol)} entry ${fmtPrice(input.entry)}, SL ${fmtPrice(input.sl)}, TP ${fmtPrice(input.tp)}, ${input.leverage}x, modal ${fmtUsd(input.margin)} USDT`, k: 'info' }],
     };
-    setPositions((ps) => [p, ...ps]);
+    setPositions((ps) => [p, ...ps.filter((x) => x.status === 'open'), ...ps.filter((x) => x.status !== 'open').slice(0, 49)]);
     setSelId(id);
     setMsg(perm === 'granted' ? null : 'Izin notifikasi browser belum diberikan. Bunyi, judul tab berkedip, dan banner tetap aktif.');
   };
