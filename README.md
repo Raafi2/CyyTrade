@@ -105,8 +105,8 @@ tiap menit). Aturan, dari yang paling konservatif:
 
 | Key | Default | Fungsi |
 |---|---|---|
-| `SIGNAL_WATCHLIST` | 100 | jumlah pair teratas (volume 24j) |
-| `SIGNAL_MIN_VOLUME` | 10000000 | volume minimum 24j (USDT) |
+| `SIGNAL_WATCHLIST` | 20 | jumlah pair teratas (volume 24j) |
+| `SIGNAL_MIN_VOLUME` | 100000000 | volume minimum 24j (USDT) |
 | `SIGNAL_LIVE_TTL` | 3 | detik cache harga/mark/funding (hanya meredam request serentak) |
 | `SIGNAL_FUTURES_TTL` | 300 | detik cache OI/long-short/taker |
 | `SIGNAL_FEE_PCT` | 0.10 | fee round-trip (%) |
