@@ -123,6 +123,9 @@ class BinanceFuturesClient
 
             return $options;
         }
+        if (! config('signal.doh', true)) {
+            return $options; // pakai DNS sistem
+        }
         $host = parse_url($this->base(), PHP_URL_HOST) ?: 'fapi.binance.com';
         $ips = $this->resolveViaDoH($host);
         if ($ips !== []) {
@@ -199,9 +202,10 @@ class BinanceFuturesClient
                 $r = Http::withOptions($this->httpOptions())->withHeaders(['X-MBX-APIKEY' => $key])
                     ->acceptJson()->connectTimeout(5)->timeout(15)->send($method, $this->base().$path.'?'.$qs.'&signature='.$sig);
                 break;
-            } catch (ConnectionException) {
+            } catch (ConnectionException $e) {
                 if ($i === $attempts) {
-                    throw new BinanceApiException('Tidak dapat terhubung ke Binance (hasil permintaan tidak pasti).', 0, 0, true);
+                    $why = preg_replace('/https?:\/\/\S+/', '', $e->getMessage());
+                    throw new BinanceApiException('Tidak dapat terhubung ke Binance (hasil permintaan tidak pasti): '.mb_substr(trim((string) $why), 0, 160), 0, 0, true);
                 }
             }
         }
