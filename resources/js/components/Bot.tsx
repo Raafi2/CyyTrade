@@ -16,6 +16,7 @@ export default function Bot() {
   const [form, setForm] = useState<Record<keyof BotSettings, string> | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [slPct, setSlPct] = useState('0.3');
 
   const load = useCallback(() => {
     getBot().then((r) => {
@@ -39,6 +40,17 @@ export default function Bot() {
   const bal = d.runtime.balance;
   const pos = d.runtime.position ?? null;
   const riskUsd = bal ? (bal.available * (parseFloat(form.risk_pct) || 0)) / 100 : 0;
+  const est = (() => {
+    const b = bal?.available ?? 0, sl = (parseFloat(slPct) || 0) / 100, risk = parseFloat(form.risk_pct) || 0;
+    const maxLev = parseInt(form.max_leverage, 10) || 1, target = parseFloat(form.target_usd) || 0, fee = 0.001;
+    if (!(b > 0 && sl > 0 && risk > 0)) return null;
+    const notional = (b * risk / 100) / (sl + fee);
+    const lev = Math.max(1, Math.ceil(notional / (b * 0.6) - 1e-9));
+    const loss = notional * (sl + fee);
+    const gain = target > 0 ? target : notional * (1.5 * sl - fee);
+    const tpPct = (gain / notional + fee) * 100;
+    return { notional, lev, ok: lev <= maxLev, loss, gain, tpPct, be: gain > 0 ? (loss / (loss + gain)) * 100 : null };
+  })();
   const winRate = (x: { trades: number; wins: number }) => (x.trades ? `${Math.round((x.wins / x.trades) * 100)}%` : '–');
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
@@ -123,6 +135,19 @@ export default function Bot() {
           <label>Batas waktu posisi (menit, maks {d.caps.max_hold_min})<input inputMode="numeric" value={form.max_hold_min} onChange={set('max_hold_min')} /></label>
         </div>
         <p className="fine">Dengan saldo {bal ? fmtUsd(bal.available) : '–'} USDT, rugi maksimal per trade sekitar {fmtUsd(riskUsd)} USDT (ditambah fee). Ukuran posisi dan leverage dihitung bot dari jarak SL, dan trade dilewati bila saldo terlalu kecil untuk ukuran minimum pair atau SL terlalu dekat likuidasi.</p>
+        <h4 className="label">Estimasi untung/rugi bersih per trade <span className="dim">(setelah fee 0,05%/sisi)</span></h4>
+        <div className="inputs two">
+          <label>Perkiraan jarak SL (% dari harga)<input inputMode="decimal" value={slPct} onChange={(e) => setSlPct(e.target.value)} /></label>
+        </div>
+        {est ? (
+          <dl className="kv mono">
+            <dt>Ukuran posisi</dt><dd>{fmtUsd(est.notional)} USDT · leverage ~{est.lev}x{est.ok ? '' : ' (melebihi batas, trade dilewati)'}</dd>
+            <dt>Rugi bila kena SL</dt><dd className="short">-{fmtUsd(est.loss)}</dd>
+            <dt>Untung bila kena TP</dt><dd className="long">{est.gain > 0 ? `+${fmtUsd(est.gain)}` : '–'} (TP ~{est.tpPct.toFixed(2)}% dari entry)</dd>
+            <dt>Win rate impas</dt><dd>{est.be === null ? '–' : `${est.be.toFixed(0)}%`}</dd>
+          </dl>
+        ) : <p className="fine">Saldo belum terbaca atau input tidak valid.</p>}
+        <p className="fine">Hitungan kasar tanpa slippage dan funding. SL asli ditentukan bot dari ATR tiap setup. Win rate impas = persentase trade menang minimum agar tidak rugi; bukan jaminan sinyal mencapainya.</p>
         <button className="btn" disabled={busy} onClick={onSave}>Simpan pengaturan</button>
       </div>
 
