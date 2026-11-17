@@ -5,8 +5,8 @@ import { getAnalysis, getSymbols, getTrack } from './api';
 import Chart from './components/Chart';
 import Detail from './components/Detail';
 import History from './components/History';
+import Bot from './components/Bot';
 import Portfolio from './components/Portfolio';
-import Scalping from './components/Scalping';
 import Watchlist from './components/Watchlist';
 import { markStream, symbolStreams, useLive, useStreams } from './live';
 import { isErr, type Entry, type SignalRow, type SymbolRow } from './types';
@@ -22,7 +22,7 @@ const MODE_HINT = {
 } as const;
 
 function App() {
-  const [tab, setTab] = useState<'pasar' | 'scalping' | 'portofolio' | 'riwayat'>('pasar');
+  const [tab, setTab] = useState<'bot' | 'pasar' | 'portofolio' | 'riwayat'>('bot');
   const [symbols, setSymbols] = useState<SymbolRow[]>([]);
   const [results, setResults] = useState<Record<string, Entry>>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -114,9 +114,9 @@ function App() {
       <header>
         <div className="brand mono">SINYAL<span>/</span>FUTURES</div>
         <nav>
-          <button className={tab === 'pasar' ? 'on' : ''} onClick={() => setTab('pasar')}>Pasar</button>
-          <button className={tab === 'scalping' ? 'on' : ''} onClick={() => setTab('scalping')}>Scalping</button>
+          <button className={tab === 'bot' ? 'on' : ''} onClick={() => setTab('bot')}>Bot</button>
           <button className={tab === 'portofolio' ? 'on' : ''} onClick={() => setTab('portofolio')}>Portofolio</button>
+          <button className={tab === 'pasar' ? 'on' : ''} onClick={() => setTab('pasar')}>Pasar</button>
           <button className={tab === 'riwayat' ? 'on' : ''} onClick={() => setTab('riwayat')}>Riwayat</button>
         </nav>
         <div className="spacer" />
@@ -132,7 +132,9 @@ function App() {
       {err && <div className="banner">Gagal mengambil data dari Binance: {err}</div>}
       {notice && <div className="banner info">{notice}</div>}
 
-      {tab === 'pasar' ? (
+      {tab === 'bot' ? (
+        <Bot />
+      ) : tab === 'pasar' ? (
         <main className="grid">
           <Watchlist rows={symbols} results={results} ticks={live.ticks} selected={selected} onSelect={setSelected} onlyActive={onlyActive} setOnlyActive={setOnlyActive} />
           {selected
@@ -142,8 +144,6 @@ function App() {
             ? <section className="panel detail"><div className="banner">Analisis gagal: {sel.error}</div></section>
             : <Detail a={analysis} livePrice={livePrice} mark={selected ? live.marks[selected] : undefined} />}
         </main>
-      ) : tab === 'scalping' ? (
-        <Scalping live={live} symbols={symbols} />
       ) : tab === 'portofolio' ? (
         <Portfolio live={live} />
       ) : (

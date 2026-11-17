@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Signal;
-use App\Services\Analysis\SignalEngine;
+use App\Services\Analysis\AnalysisRunner;
 use App\Services\Binance\BinanceFuturesClient;
 use App\Services\SignalTracker;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +15,7 @@ class AnalysisController extends Controller
 {
     private const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h'];
 
-    public function __construct(private BinanceFuturesClient $bn, private SignalTracker $tracker) {}
+    public function __construct(private BinanceFuturesClient $bn, private SignalTracker $tracker, private AnalysisRunner $runner) {}
 
     public function symbols(): JsonResponse
     {
@@ -30,27 +30,7 @@ class AnalysisController extends Controller
         return $this->guard(function () use ($symbol, $mode) {
             $this->assertSymbol($symbol);
 
-            $preset = config("signal.modes.$mode");
-            $b = $this->bn->bundle($symbol, $mode);
-            $btc = $symbol === 'BTCUSDT' ? null : $this->bn->btcCandles($preset['main']);
-
-            $cfg = config('signal');
-            $cfg['tf'] = $preset;
-            $cfg['cost_pct'] = (float) $cfg['fee_pct'] + (float) $cfg['slippage_pct'];
-            if (isset($preset['min_confidence'])) {
-                $cfg['min_confidence'] = $preset['min_confidence'];
-            }
-            if (isset($preset['max_cost_r'])) {
-                $cfg['veto']['max_cost_r'] = $preset['max_cost_r'];
-            }
-
-            $res = (new SignalEngine($cfg))->analyze($symbol, $b['trig'], $b['main'], $b['htf'], $b['price'], $b['futures'], $btc);
-
-            // Waktu yang ditampilkan adalah waktu harga diambil, bukan waktu komputasi.
-            $res['mode'] = $mode;
-            $res['price_at'] = $b['price_at'];
-            $res['generated_at'] = intdiv($b['price_at'], 1000);
-            $res['live'] = ['mark' => $b['mark'], 'funding' => $b['funding'], 'next_funding' => $b['next_funding']];
+            $res = $this->runner->run($symbol, $mode);
 
             // Riwayat dan statistik hanya untuk sinyal swing; scalp dipantau lewat tab Scalping.
             if ($mode === 'swing') {

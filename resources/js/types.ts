@@ -48,3 +48,27 @@ export interface IncomeResp {
   totals?: { realized: number; commission: number; funding: number; transfer: number; net: number };
   records?: IncomeRec[]; truncated?: boolean; earliest?: number | null; api_limit_days?: number; sync_error?: string | null;
 }
+
+export interface BotSettings { risk_pct: number; max_leverage: number; target_usd: number; daily_loss_pct: number; max_hold_min: number }
+export interface BotPosition {
+  symbol: string; side: 'LONG' | 'SHORT'; entry: number; mark: number; sl: number; tp: number; qty: number; leverage: number;
+  pnl: number; liq: number; progress: number; opened_at: number; be_done: boolean;
+  signal: { side: string; lean: string; confidence: number } | null;
+}
+export interface BotTradeRow {
+  id: number; symbol: string; side: 'LONG' | 'SHORT'; leverage: number; entry: number; exit: number | null; sl: number; tp: number;
+  status: string; pnl: number | null; opened_at: number; closed_at: number | null;
+}
+export interface BotResp {
+  enabled: boolean; live: boolean; configured: boolean; heartbeat: number; now: number;
+  settings: BotSettings & Record<string, number>;
+  caps: { risk_pct: number; max_leverage: number; daily_loss_pct: number; max_hold_min: number };
+  runtime: {
+    status?: string; testnet?: boolean; day_pnl?: number; day_limit?: number; balance_error?: string;
+    balance?: { wallet: number; available: number }; position?: BotPosition | null;
+  };
+  today: { trades: number; wins: number; pnl: number };
+  total: { trades: number; wins: number; pnl: number };
+  trades: BotTradeRow[];
+  events: { time: number; level: 'info' | 'warn' | 'error'; message: string }[];
+}

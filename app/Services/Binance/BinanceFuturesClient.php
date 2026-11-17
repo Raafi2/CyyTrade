@@ -163,17 +163,17 @@ class BinanceFuturesClient
     }
 
     /**
-     * GET bertanda tangan (HMAC-SHA256) ke endpoint akun. Hanya untuk endpoint baca; kunci tidak pernah
-     * dikirim ke browser dan tidak ditulis ke log. Gunakan API key dengan izin "Enable Reading" SAJA.
+     * Permintaan bertanda tangan (HMAC-SHA256) ke endpoint akun. Kunci tidak pernah dikirim ke browser
+     * dan tidak ditulis ke log. GET dipakai untuk membaca akun; POST/DELETE hanya dipakai bot trading.
      *
      * @return array<mixed>
      */
-    public function signed(string $path, array $query = []): array
+    public function signed(string $path, array $query = [], string $method = 'GET'): array
     {
         $key = (string) config('signal.account.key');
         $secret = (string) config('signal.account.secret');
         if ($key === '' || $secret === '') {
-            throw new RuntimeException('API key Binance belum diatur di .env.');
+            throw new BinanceApiException('API key Binance belum diatur di .env.');
         }
         $this->assertNotBackedOff();
         $query['recvWindow'] = 10_000;
@@ -183,24 +183,64 @@ class BinanceFuturesClient
 
         try {
             $r = Http::withOptions($this->httpOptions())->withHeaders(['X-MBX-APIKEY' => $key])
-                ->acceptJson()->timeout(15)->get($this->base().$path.'?'.$qs.'&signature='.$sig);
+                ->acceptJson()->timeout(15)->send($method, $this->base().$path.'?'.$qs.'&signature='.$sig);
         } catch (ConnectionException) {
-            throw new RuntimeException('Tidak dapat terhubung ke Binance untuk data akun.');
+            throw new BinanceApiException('Tidak dapat terhubung ke Binance (hasil permintaan tidak pasti).', 0, 0, true);
         }
         $this->noteStatus($r);
 
         if (! $r->successful()) {
             $code = (int) $r->json('code');
-            throw new RuntimeException(match (true) {
-                in_array($code, [-2014, -2015], true) || $r->status() === 401 => 'API key ditolak Binance. Periksa key/secret, izin "Enable Reading", dan whitelist IP.',
+            $msg = match (true) {
+                in_array($code, [-2014, -2015], true) || $r->status() === 401 => 'API key ditolak Binance. Periksa key/secret, izin, dan whitelist IP.',
                 $code === -1021 => 'Jam komputer tidak sinkron dengan Binance. Sinkronkan jam sistem.',
                 $code === -1022 => 'Tanda tangan ditolak. Periksa BINANCE_API_SECRET.',
                 $r->status() === 404 => 'Endpoint akun tidak tersedia ('.$path.').',
-                default => 'Binance menolak permintaan akun (HTTP '.$r->status().', kode '.$code.').',
-            });
+                default => 'Binance menolak permintaan (HTTP '.$r->status().', kode '.$code.'): '.mb_substr((string) $r->json('msg'), 0, 160),
+            };
+            throw new BinanceApiException($msg, $code, $r->status(), $r->status() >= 500);
         }
 
         return $r->json() ?? [];
+    }
+
+    /**
+     * Aturan trading satu simbol dari exchangeInfo (di-cache 6 jam): tickSize, stepSize, minQty, minNotional.
+     *
+     * @return array{tick:float,step:float,min_qty:float,min_notional:float}
+     */
+    public function rules(string $symbol): array
+    {
+        $all = $this->remember('bn:rules', 6 * 3600, function () {
+            $r = $this->get('/fapi/v1/exchangeInfo', [], 15);
+            if (! $r->successful()) {
+                throw new RuntimeException('exchangeInfo gagal: HTTP '.$r->status());
+            }
+            $out = [];
+            foreach ($r->json('symbols', []) as $s) {
+                $f = [];
+                foreach ($s['filters'] ?? [] as $x) {
+                    $f[$x['filterType']] = $x;
+                }
+                $lot = $f['MARKET_LOT_SIZE'] ?? $f['LOT_SIZE'] ?? null;
+                if (! $lot || ! isset($f['PRICE_FILTER'])) {
+                    continue;
+                }
+                $out[$s['symbol']] = [
+                    'tick' => (float) $f['PRICE_FILTER']['tickSize'],
+                    'step' => (float) $lot['stepSize'],
+                    'min_qty' => (float) $lot['minQty'],
+                    'min_notional' => (float) ($f['MIN_NOTIONAL']['notional'] ?? 5),
+                ];
+            }
+
+            return $out;
+        });
+        if (! isset($all[$symbol])) {
+            throw new RuntimeException("Aturan trading $symbol tidak ditemukan.");
+        }
+
+        return $all[$symbol];
     }
 
     private function ok(mixed $r): bool

@@ -185,7 +185,7 @@ class PortfolioController extends Controller
     private function guard(Request $r, callable $fn): JsonResponse
     {
         // Tidak ada login di aplikasi ini: jangan bocorkan data akun ke jaringan.
-        $local = in_array($r->ip(), ['127.0.0.1', '::1'], true);
+        $local = in_array($r->ip(), ['127.0.0.1', '::1'], true) && in_array($r->getHost(), ['127.0.0.1', 'localhost', '[::1]', '::1'], true);
         if (! $local && ! config('signal.account.allow_remote')) {
             return response()->json(['error' => 'Data akun hanya bisa dibuka dari komputer yang sama (localhost).'], 403);
         }

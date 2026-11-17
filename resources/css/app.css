@@ -143,3 +143,14 @@ h4.label.pad { margin: 18px 0 0; padding: 0; font-weight: 500; }
 .chev:hover { border-color: var(--amber); }
 tr.expand > td { background: #0c1015; padding: 10px 14px; white-space: normal; }
 .pa { max-width: 560px; }
+
+/* ---- Bot ---- */
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.badge { font: 11px var(--mono); padding: 3px 8px; border: 1px solid var(--line2); border-radius: 2px; letter-spacing: .03em; }
+.badge.ok { color: var(--long); border-color: var(--long); } .badge.warn { color: var(--amber); border-color: var(--amber); } .badge.bad { color: var(--short); border-color: var(--short); }
+.botctl { padding: 14px 0 4px; flex-wrap: wrap; } .botctl .btn { padding: 8px 14px; } .botctl .btn.primary { margin-top: 0; width: auto; }
+.btn.danger { border-color: var(--short); color: var(--short); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.prog { height: 6px; background: var(--line); margin: 8px 0 4px; } .prog > i { display: block; height: 100%; }
+.log .warn { color: var(--amber); } .log .bad { color: var(--short); }
+.botpage .log { max-height: 260px; }

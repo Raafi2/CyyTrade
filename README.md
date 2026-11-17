@@ -50,7 +50,36 @@ npm run dev
 
 Buka http://127.0.0.1:8000
 
-## Tab Scalping
+## Tab Bot (trading otomatis, BERISIKO)
+
+Bot membuka dan mengelola posisi scalping sendiri di akun Binance Futures Anda. Anda hanya menekan Mulai/Berhenti.
+Ukuran posisi dan leverage dihitung bot dari saldo yang tersedia; Anda hanya mengatur batas.
+
+**Cara kerja satu trade**
+1. Setiap ~20 detik bot memindai 20 pair likuid dengan analisis scalp (1m/5m/15m) dan memilih setup confidence tertinggi.
+2. Ukuran = (saldo x risiko%) / jarak SL. Leverage = yang paling kecil agar muat di 60% saldo sebagai margin, tidak pernah melewati batas.
+   Trade dilewati bila saldo terlalu kecil untuk ukuran minimum pair, SL terlalu dekat likuidasi, atau target tak realistis.
+3. Order market masuk (ISOLATED), lalu **SL dan TP langsung dipasang di Binance** (endpoint Algo). Bila SL gagal dipasang,
+   posisi langsung ditutup dan bot berhenti.
+4. Bot lalu **fokus memantau** satu posisi itu tiap ~2 detik: SL/TP masih ada di Binance, sinyal berbalik (tutup),
+   harga setengah jalan ke TP (SL digeser ke impas), batas waktu (tutup), dan harga menembus TP/SL (cadangan).
+5. Setelah selesai: hasil bersih dihitung dari trade nyata Binance, lalu bot mencari setup berikutnya.
+
+**Pengaman**: satu posisi sekali waktu; risiko per trade maks 3% saldo; leverage maks 20x; batas rugi harian (bot berhenti);
+jeda 1 jam setelah 3 rugi beruntun; tombol DARURAT; menolak jalan bila akun Hedge Mode atau ada posisi lain di akun;
+kontrol hanya dari localhost.
+
+**Menjalankan** (tanpa VPS, komputer harus menyala)
+1. API key BARU dengan izin **Enable Futures** (tanpa Withdraw), dibatasi ke IP Anda. Isi `.env`, lalu `php artisan migrate` dan `php artisan config:clear`.
+2. **Uji dulu**: biarkan `BOT_LIVE` kosong. Bot hanya mencatat rencana tradenya, tidak mengirim order. Lalu coba di
+   [Binance Futures Testnet](https://testnet.binancefuture.com) (`BINANCE_FAPI_BASE=https://testnet.binancefuture.com` dan key testnet).
+3. Setelah yakin: `BOT_LIVE=true`, nominal kecil dulu.
+4. Terminal 1: server web. Terminal 2: `php artisan bot:run` (biarkan terbuka). Buka tab Bot lalu tekan Mulai.
+
+**Batasan jujur**: tidak ada jaminan profit dan sinyal ini belum terbukti punya keunggulan; bot bisa rugi sampai modal habis.
+Bila terminal bot ditutup saat ada posisi, hanya SL/TP di Binance yang menjaganya. Hasil bot tidak terhubung ke tab Riwayat.
+
+## Tab Scalping (manual, sudah tidak ada di menu)
 
 Isi pair, arah, entry, modal (USDT), dan leverage. SL/TP tidak diisi: setelah "Mulai pantau" aplikasi menyarankannya dari
 analisis scalp (candle 1m/5m/15m) atau ATR 5m, disesuaikan dengan leverage (SL tidak melewati batas aman likuidasi), lengkap dengan
@@ -113,6 +142,8 @@ tiap menit). Aturan, dari yang paling konservatif:
 | `SIGNAL_SLIPPAGE_PCT` | 0.04 | perkiraan slippage (%) |
 | `SIGNAL_SCALP_MAX_COST_R` | 0.25 | batas fee+slippage (dalam R) untuk sinyal scalp |
 | `BINANCE_API_KEY` / `BINANCE_API_SECRET` | (kosong) | API key read-only untuk tab Portofolio |
+| `BOT_LIVE` | (kosong) | `true` agar bot mengirim order sungguhan; kosong = hanya mencatat rencana |
+| `BOT_TZ` | Asia/Jakarta | zona waktu batas rugi harian |
 | `BINANCE_FAPI_BASE` | https://fapi.binance.com | ganti jika endpoint REST diblokir |
 | `VITE_BINANCE_WS` | wss://fstream.binance.com | ganti jika WebSocket diblokir |
 | `BINANCE_CA_BUNDLE` | (kosong) | path CA bundle jika ada error SSL |
