@@ -177,15 +177,25 @@ class BinanceFuturesClient
         }
         $this->assertNotBackedOff();
         $query['recvWindow'] = 10_000;
-        $query['timestamp'] = $this->nowMs();
-        $qs = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
-        $sig = hash_hmac('sha256', $qs, $secret);
 
-        try {
-            $r = Http::withOptions($this->httpOptions())->withHeaders(['X-MBX-APIKEY' => $key])
-                ->acceptJson()->timeout(15)->send($method, $this->base().$path.'?'.$qs.'&signature='.$sig);
-        } catch (ConnectionException) {
-            throw new BinanceApiException('Tidak dapat terhubung ke Binance (hasil permintaan tidak pasti).', 0, 0, true);
+        // Hanya GET (baca) yang aman diulang. POST/DELETE tidak diulang karena hasilnya bisa tidak pasti.
+        // Tiap percobaan memakai timestamp, tanda tangan, dan IP Binance baru.
+        $attempts = $method === 'GET' ? 3 : 1;
+        $r = null;
+        for ($i = 1; $i <= $attempts; $i++) {
+            $q = $query;
+            $q['timestamp'] = $this->nowMs();
+            $qs = http_build_query($q, '', '&', PHP_QUERY_RFC3986);
+            $sig = hash_hmac('sha256', $qs, $secret);
+            try {
+                $r = Http::withOptions($this->httpOptions())->withHeaders(['X-MBX-APIKEY' => $key])
+                    ->acceptJson()->connectTimeout(5)->timeout(15)->send($method, $this->base().$path.'?'.$qs.'&signature='.$sig);
+                break;
+            } catch (ConnectionException) {
+                if ($i === $attempts) {
+                    throw new BinanceApiException('Tidak dapat terhubung ke Binance (hasil permintaan tidak pasti).', 0, 0, true);
+                }
+            }
         }
         $this->noteStatus($r);
 
