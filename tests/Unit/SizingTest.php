@@ -68,6 +68,14 @@ class SizingTest extends TestCase
         }
     }
 
+    public function test_leverage_at_exact_cap_is_not_rejected_by_float_noise(): void
+    {
+        // notional 54 / (9 x 0,6) = 10,000000000000002 tidak boleh dibulatkan ke 11
+        $p = Sizing::plan($this->base(['sl' => 99.7, 'tp' => 100.45, 'max_leverage' => 10]));
+        $this->assertTrue($p['ok'], $p['reason'] ?? '');
+        $this->assertSame(10, $p['leverage']);
+    }
+
     public function test_wrong_side_and_unrealistic_target(): void
     {
         $this->assertFalse(Sizing::plan($this->base(['sl' => 100.5]))['ok']);

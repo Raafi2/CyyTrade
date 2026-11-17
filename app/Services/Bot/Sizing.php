@@ -77,7 +77,7 @@ final class Sizing
         }
 
         $notional = $qty * $entry;
-        $leverage = max(1, (int) ceil($notional / ($balance * self::MARGIN_FRAC)));
+        $leverage = max(1, (int) ceil($notional / ($balance * self::MARGIN_FRAC) - 1e-9));
         if ($leverage > $maxLev) {
             return $fail('Leverage yang dibutuhkan melebihi batas bot.');
         }
