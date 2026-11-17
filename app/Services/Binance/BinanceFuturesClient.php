@@ -115,6 +115,14 @@ class BinanceFuturesClient
     private function httpOptions(): array
     {
         $options = $this->sslOptions();
+        // Proxy opsional (mis. http://127.0.0.1:7890 atau socks5h://127.0.0.1:40000). Proxy yang me-resolve DNS,
+        // jadi DoH dilewati.
+        $proxy = trim((string) config('signal.proxy', ''));
+        if ($proxy !== '') {
+            $options['proxy'] = $proxy;
+
+            return $options;
+        }
         $host = parse_url($this->base(), PHP_URL_HOST) ?: 'fapi.binance.com';
         $ips = $this->resolveViaDoH($host);
         if ($ips !== []) {

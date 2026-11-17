@@ -5,6 +5,8 @@ return [
     'ssl_verify' => env('BINANCE_SSL_VERIFY', true),
     // Path CA bundle kustom (opsional). Jika kosong dipakai storage/cacert.pem atau bawaan PHP.
     'ca_bundle' => env('BINANCE_CA_BUNDLE', ''),
+    // Proxy HTTP/SOCKS untuk semua request ke Binance dari PHP (opsional). Contoh: http://127.0.0.1:7890
+    'proxy' => env('BINANCE_PROXY', ''),
 
     // Portofolio read-only (opsional). Buat API key di Binance dengan HANYA izin "Enable Reading",
     // batasi ke IP Anda, simpan di .env. Jangan pernah mengaktifkan Trading/Withdraw.
