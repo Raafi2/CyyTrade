@@ -18,7 +18,19 @@ class Trader
     {
         $a = $this->versioned('/fapi/v3/account', '/fapi/v2/account');
 
-        return ['wallet' => (float) ($a['totalWalletBalance'] ?? 0), 'available' => (float) ($a['availableBalance'] ?? 0)];
+        $wallet = (float) ($a['totalWalletBalance'] ?? 0);
+        $avail = (float) ($a['availableBalance'] ?? 0);
+        // Cadangan: bila field total kosong, baca aset USDT langsung.
+        if ($wallet == 0.0 && $avail == 0.0) {
+            foreach ((array) ($a['assets'] ?? []) as $as) {
+                if (($as['asset'] ?? '') === 'USDT') {
+                    $wallet = (float) ($as['walletBalance'] ?? 0);
+                    $avail = (float) ($as['availableBalance'] ?? 0);
+                }
+            }
+        }
+
+        return ['wallet' => $wallet, 'available' => $avail];
     }
 
     public function isHedgeMode(): bool
