@@ -39,3 +39,9 @@ export const saveBotSettings = (s: BotSettings) => post<{ ok: boolean }>('/api/b
 export const startBot = () => post<{ ok: boolean }>('/api/bot/start');
 export const stopBot = () => post<{ ok: boolean }>('/api/bot/stop');
 export const panicBot = () => post<{ ok: boolean }>('/api/bot/panic');
+
+export interface Btc5Feed {
+    k?: number; ref?: number; up?: number; down?: number; expiry?: number; left?: number; title?: string; received_at: number;
+}
+export interface Btc5FeedResp { feed: Btc5Feed | null; age_ms: number | null; now: number }
+export const getBtc5Feed = () => get<Btc5FeedResp>('/api/btc5/feed');

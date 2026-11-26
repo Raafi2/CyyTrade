@@ -154,3 +154,10 @@ tr.expand > td { background: #0c1015; padding: 10px 14px; white-space: normal; }
 .prog { height: 6px; background: var(--line); margin: 8px 0 4px; } .prog > i { display: block; height: 100%; }
 .log .warn { color: var(--amber); } .log .bad { color: var(--short); }
 .botpage .log { max-height: 260px; }
+
+/* Tab BTC 5m */
+.btc5 .sigcard { border: 1px solid var(--line2); margin: 12px 0; padding: 14px 16px; }
+.btc5 .sigcard.long { border-color: var(--long); } .btc5 .sigcard.short { border-color: var(--short); }
+.btc5 .sigcard .big { font-size: 26px; }
+.btc5chart { display: block; width: 100%; height: 130px; margin: 6px 0 2px; background: var(--panel); border: 1px solid var(--line); }
+.btc5 a { color: var(--amber); }

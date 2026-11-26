@@ -6,6 +6,7 @@ import Chart from './components/Chart';
 import Detail from './components/Detail';
 import History from './components/History';
 import Bot from './components/Bot';
+import Btc5 from './components/Btc5';
 import Portfolio from './components/Portfolio';
 import Watchlist from './components/Watchlist';
 import { markStream, symbolStreams, useLive, useStreams } from './live';
@@ -22,7 +23,7 @@ const MODE_HINT = {
 } as const;
 
 function App() {
-  const [tab, setTab] = useState<'bot' | 'pasar' | 'portofolio' | 'riwayat'>('bot');
+  const [tab, setTab] = useState<'btc5' | 'bot' | 'pasar' | 'portofolio' | 'riwayat'>('btc5');
   const [symbols, setSymbols] = useState<SymbolRow[]>([]);
   const [results, setResults] = useState<Record<string, Entry>>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -114,6 +115,7 @@ function App() {
       <header>
         <div className="brand mono">SINYAL<span>/</span>FUTURES</div>
         <nav>
+          <button className={tab === 'btc5' ? 'on' : ''} onClick={() => setTab('btc5')}>BTC 5m</button>
           <button className={tab === 'bot' ? 'on' : ''} onClick={() => setTab('bot')}>Bot</button>
           <button className={tab === 'portofolio' ? 'on' : ''} onClick={() => setTab('portofolio')}>Portofolio</button>
           <button className={tab === 'pasar' ? 'on' : ''} onClick={() => setTab('pasar')}>Pasar</button>
@@ -132,7 +134,9 @@ function App() {
       {err && <div className="banner">Gagal mengambil data dari Binance: {err}</div>}
       {notice && <div className="banner info">{notice}</div>}
 
-      {tab === 'bot' ? (
+      {tab === 'btc5' ? (
+        <Btc5 />
+      ) : tab === 'bot' ? (
         <Bot />
       ) : tab === 'pasar' ? (
         <main className="grid">

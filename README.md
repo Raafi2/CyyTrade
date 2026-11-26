@@ -178,3 +178,23 @@ tiap menit). Aturan, dari yang paling konservatif:
 - `resources/js/live.ts` feed WebSocket Binance (reconnect, fallback polling)
 - `resources/js/` UI React TSX (watchlist, chart, detail, riwayat)
 - `tests/Unit/` tes resolver, indikator, dan engine (`php artisan test`)
+
+## Tab BTC 5m: sinyal naik/turun 5 menit (hanya sinyal, tanpa order)
+
+Untuk pasar prediksi "BTC Naik atau Turun dalam 5 menit" di Binance. Tab ini menampilkan ronde yang sedang berjalan (nomor ronde, jam mulai/akhir, sisa waktu), peluang wajar Naik/Turun, selisihnya dengan harga pasar, dan rekomendasi **BELI NAIK / BELI TURUN / TUNGGU** beserta batas waktu masuk. Tidak ada order yang dikirim dari tab ini.
+
+**Sumber data**
+- Harga live: WebSocket publik Binance spot BTC/USDT (book teratas + trade), tanpa API key dan tanpa login. Pasar ini diselesaikan dengan harga tengah book teratas Binance (lewat Chainlink), jadi mid book spot adalah pendekatan terdekat.
+- Harga acuan ("Harga yang Perlu Dikalahkan"), persen Naik/Turun, dan hitung mundur dibaca dari halaman Binance yang sudah Anda login di browser, lewat userscript Tampermonkey. Userscript hanya membaca teks yang tampil dan mengirimnya ke `http://127.0.0.1:8000/api/btc5/feed`; ia tidak membaca API key, tidak mengklik apa pun, dan tidak membuat order.
+
+**Memasang userscript**
+1. Pasang ekstensi Tampermonkey di browser.
+2. Dengan `php artisan serve` berjalan, buka `http://127.0.0.1:8000/cyytrade-binance.user.js` lalu klik Install.
+3. Buka halaman prediksi BTC 5 menit Binance (sudah login) dan biarkan tab itu terbuka. Lencana kecil di kiri bawah halaman menunjukkan angka yang terbaca (hijau = terkirim). Jika "halaman prediksi tidak dikenali", klik lencana itu untuk menyalin teks halaman dan kirim ke pengembang; pembacaan teks dibuat dari tangkapan layar, bukan dari struktur HTML asli.
+4. Buka tab **BTC 5m** di aplikasi dan biarkan terlihat.
+
+**Cara menghitung**: gerak acak tanpa arah dengan volatilitas dari data live (return 10 detik, digabung kline 1 menit) dan distribusi berekor tebal (Student-t, 5 derajat bebas). Sinyal hanya muncul bila selisih peluang vs harga pasar masih ≥ batas **setelah** volatilitas dilebarkan ±25%, harga pasar sisi itu tidak ekstrem, sisa waktu cukup, dan tekanan order tidak sangat berlawanan. Hasil nyata setiap ronde (sinyal vs harga akhir) dicatat di browser Anda untuk dilihat win rate-nya. Itu bukan backtest: hanya ronde yang terjadi saat tab terbuka.
+
+**Peringatan**: arah 5 menit BTC hampir acak dan harga pasar sudah memuat banyak informasi. Perkiraan ini bisa salah, dan selisih kecil mudah habis oleh spread, slippage, dan fee. Biarkan tabel hasil nyata mengumpulkan ratusan ronde sebelum mempercayai sinyalnya.
+
+Tes logika: `npm run test:js` (Node 22+).
