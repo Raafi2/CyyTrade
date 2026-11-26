@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         CyyTrade: pembaca halaman BTC 5 menit Binance
 // @namespace    cyytrade
-// @version      1.0.0
+// @version      1.0.1
 // @description  Membaca angka yang tampil di halaman prediksi BTC 5 menit Binance (harga acuan, persen Naik/Turun, hitung mundur) dan mengirimnya ke aplikasi CyyTrade di komputer Anda. Tidak membaca API key, tidak menekan tombol, tidak membuat order.
 // @match        https://www.binance.com/*
 // @match        https://*.binance.com/*
+// @downloadURL  http://127.0.0.1:8000/cyytrade-binance.user.js
+// @updateURL    http://127.0.0.1:8000/cyytrade-binance.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
 // @connect      127.0.0.1
@@ -95,10 +97,11 @@
     });
   }
 
+  show('aktif, membaca halaman…', '#e0b341');
   setInterval(function () {
     var p;
     try { p = parse(document.body ? document.body.innerText || '' : ''); } catch (e) { p = null; }
-    if (!p) { if (badge.style.display !== 'none') show('halaman prediksi tidak dikenali (klik untuk salin teks halaman)', '#e0b341'); return; }
+    if (!p) { show('aktif, tapi halaman prediksi belum dikenali (klik kotak ini untuk menyalin teks halaman)', '#e0b341'); return; }
     send(p);
   }, EVERY_MS);
 })();
